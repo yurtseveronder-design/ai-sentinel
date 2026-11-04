@@ -1,33 +1,30 @@
-# AI-Sentinel: Security & RAG Evaluation Monorepo
+# AI Sentinel
 
-ai-sentinel is a modular security and evaluation framework built for LLM applications. It centralizes threat mitigation, homoglyph normalization, zero-width injection sanitization, and RAG performance benchmarking under a single core package.
+A modular security and evaluation platform for AI-powered RAG systems. It intercepts incoming prompts, blocks advanced prompt injection attacks, and logs scan telemetry for auditability.
 
-## Architecture Overview
+## Core Features
 
-```mermaid
-graph TD
-    A[Client Request / Prompt] --> B[FastAPI /api/v1/scan Endpoint]
-    B --> C[BioImmuneShield Core]
-    C --> D{Threat Detected?}
-    D -- Yes --> E[Log Threat & Block / Flag Confidence]
-    D -- No --> F[Allow Safe Prompt]
-    C --> G[SQLite Telemetry Logging]
-    H[RAG Benchmark Suite] --> I[Retrieval Precision & Latency Tracking]
+* **Hybrid Guardrail (`BioImmuneShield`)**: Combines exact string matching, collapsed normalization (stripping spaces and symbols), sliding-window fuzzy matching (`SequenceMatcher`), and fallback token intent checks to catch zero-day prompt variations.
+* **Multi-Vector Mutation Engine**: Stress-tests security layers against homoglyph exploits, space fragmentation, character encoding (Base64), and nested role-play wrappers.
+* **Telemetry & Logging**: Automatically records scan latency, confidence scores, and threat flags into local SQLite databases and JSON payload logs.
+* **FastAPI & RAG Integration**: Wire-ready backend pipeline that scans queries before vector retrieval queries execute.
+
+## Project Structure
+
+```text
+ai-sentinel/
+├── packages/
+│   ├── sentinel-core/       # Core security engine, shields, and mutations
+│   │   ├── src/sentinel_core/
+│   │   └── tests/           # Comprehensive test suite (baseline, mutations, advanced evasion)
+│   └── api-tester/          # API integration and benchmarking tools
+└── scripts/                 # Production telemetry and monitoring scripts
 ```
 
-## Package Structure
+## Running Tests
 
-- **`packages/sentinel-core`**: Core security engine (`BioImmuneShield`), SQLite telemetry persistence, and RAG benchmarking suites.
-- **`packages/prompt-shield`**: Specialized prompt injection defense wrappers.
-- **`packages/rag-bench`**: Retrieval-augmented generation performance tracking.
-- **`packages/sentinel-ui`**: Streamlit dashboard for real-time prompt testing.
+Verify the entire security and test suite locally using pytest:
 
-## Quick Start & Testing
-
-```bash
-pip install -e packages/sentinel-core
+```cmd
 python -m pytest packages/sentinel-core/tests/ -v
 ```
-
-## CI/CD
-Automated via GitHub Actions on every push to main.

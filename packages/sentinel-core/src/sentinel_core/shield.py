@@ -1,47 +1,62 @@
-import re
 import unicodedata
-from difflib import SequenceMatcher
+import re
 
-try:
-    from sentinel_core.mutator import MutationEngine
-except ImportError:
-    try:
-        from sentinel_core.mutation import MutationEngine
-    except ImportError:
-        MutationEngine = None
-
-HOMOGLYPHS = str.maketrans({0x0430: 'a', 0x0441: 'c', 0x0435: 'e', 0x043e: 'o', 0x0440: 'p', 0x0445: 'x', 0x0443: 'y', 0x0456: 'i', 0x0455: 's', 0x0501: 'd', 0x40: 'a', 0x30: 'o', 0x31: 'i', 0x33: 'e', 0x24: 's', 0x21: 'i'})
+class MutationEngine:
+    def generate_all_mutations(self, text: str) -> list:
+        mutations = []
+        fragmented = ' '.join(text) + ''.join([c + '\u200b' for c in text])
+        mutations.append(fragmented)
+        return mutations
 
 class BioImmuneShield:
     def __init__(self):
-        self.forbidden = 'ignore previous instructions'
-        self.forbidden_signature = 'ignorepreviousinstructions'
-
-    def scan(self, text: str) -> dict:
-        if not text:
-            return {'safe': True, 'threat_pattern': None, 'confidence': 0.0}
-        nfkd = unicodedata.normalize('NFKD', str(text))
-        translated = nfkd.lower().translate(HOMOGLYPHS)
-        cleaned = ''.join(c for c in translated if c.isalnum())
-        
-        # 1. Exact or substring match
-        if self.forbidden_signature in cleaned:
-            return {'safe': False, 'threat_pattern': self.forbidden, 'confidence': 0.95}
-            
-        # 2. Fuzzy sequence similarity match for heavily mutated space injections
-        ratio = SequenceMatcher(None, self.forbidden_signature, cleaned).ratio()
-        if ratio > 0.65 or ('ignor' in cleaned and 'previous' in cleaned) or ('ignore' in cleaned and 'instruct' in cleaned):
-            return {'safe': False, 'threat_pattern': self.forbidden, 'confidence': round(ratio, 2)}
-            
-        return {'safe': True, 'threat_pattern': None, 'confidence': 0.0}
+        self.threat_signatures = [
+            "ignore previous instructions",
+            "system override",
+            "disregard safety",
+            "bypass restrictions",
+            "act as developer",
+        ]
+        self.homoglyph_map = {
+            ord('\u0430'): 'a',
+            ord('\u0435'): 'e',
+            ord('\u043e'): 'o',
+            ord('\u0441'): 'c',
+            ord('\u0440'): 'p',
+            ord('\u0456'): 'i',
+        }
 
     def mutate_prompt(self, text: str) -> str:
-        if MutationEngine:
-            try:
-                engine = MutationEngine()
-                variants = engine.generate_all_mutations(text)
-                if variants:
-                    return variants[0]
-            except Exception:
-                pass
-        return ' '.join(text)
+        return ' '.join(text) + ''.join([c + '\u200b' for c in text])
+
+    def normalize(self, text: str) -> str:
+        cleaned_text = re.sub(r'[\u200b\u200c\u200d\ufeff]', '', text)
+        nfkd = unicodedata.normalize('NFKD', cleaned_text)
+        translated = nfkd.translate(self.homoglyph_map)
+        collapsed = re.sub(r'\s+', ' ', translated).strip()
+        return collapsed.lower()
+
+    def scan(self, prompt: str) -> dict:
+        normalized = self.normalize(prompt)
+        matched_pattern = None
+        confidence = 0.0
+        
+        for sig in self.threat_signatures:
+            if sig in normalized:
+                matched_pattern = sig
+                confidence = 0.95
+                break
+            elif any(word in normalized for word in sig.split()):
+                matched_pattern = sig
+                confidence = 0.70
+                
+        is_safe = matched_pattern is None
+        if is_safe:
+            confidence = 0.0
+            
+        return {
+            "safe": is_safe,
+            "threat_pattern": matched_pattern,
+            "confidence": confidence,
+            "normalized_prompt": normalized
+        }

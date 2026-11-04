@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: api-tester
+Version: 0.1.0
+Summary: API security tester
+Requires-Python: >=3.8
+License-File: LICENSE.txt
+Requires-Dist: sentinel-core
+Requires-Dist: prompt-shield
+Dynamic: license-file

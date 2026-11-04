@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-tester"
+version = "0.1.0"
+description = "API security tester"
+requires-python = ">=3.8"
+dependencies = ["sentinel-core", "prompt-shield-tester"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

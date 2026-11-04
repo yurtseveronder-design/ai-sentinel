@@ -47,7 +47,7 @@ class BioImmuneShield:
         evasion_score = 0.0
         anomaly_score = 0.0
         
-        # 1. Signature Check
+        # 1. Broad Prompt Injection & Jailbreak Signatures
         injection_triggers = [
             "ignore previous instructions", 
             "system prompt", 
@@ -58,14 +58,38 @@ class BioImmuneShield:
         ]
         if any(trigger in lower_text for trigger in injection_triggers):
             matched_rules.append("prompt_injection_signature")
-            signature_score = 0.95
+            signature_score = max(signature_score, 0.95)
+
+        # 2. System Prompt Extraction Signatures
+        extraction_triggers = [
+            "reveal your system prompt",
+            "what were your instructions",
+            "print your configuration",
+            "repeat the text above"
+        ]
+        if any(trigger in lower_text for trigger in extraction_triggers):
+            matched_rules.append("system_prompt_extraction")
+            signature_score = max(signature_score, 0.90)
+
+        # 3. Data Exfiltration Signatures
+        exfiltration_triggers = [
+            "send my data to",
+            "exfiltrate",
+            "http://",
+            "https://",
+            "curl ",
+            "wget "
+        ]
+        if any(trigger in lower_text for trigger in exfiltration_triggers):
+            matched_rules.append("data_exfiltration_signature")
+            signature_score = max(signature_score, 0.90)
             
-        # 2. Token Fragmentation / Evasion Check
+        # 4. Token Fragmentation / Evasion Check
         if "i g n o r e" in lower_text or "p r o m p t" in lower_text:
             matched_rules.append("fragmented_token_evasion")
             evasion_score = 0.90
 
-        # 3. Structural Anomaly Check
+        # 5. Structural Anomaly Check
         if len(re.findall(r'[^\w\s]', cleaned_text)) > (len(cleaned_text) * 0.3):
             matched_rules.append("structural_anomaly")
             anomaly_score = 0.60

@@ -1,26 +1,31 @@
-from normalizer import InputNormalizer
-from classifier import SemanticGuardrail
-from telemetry import SecureTelemetryLogger
+from sentinel_core.normalizer import InputNormalizer
+from sentinel_core.classifier import SemanticGuardrail
+from sentinel_core.telemetry import SecureTelemetryLogger
 
 class BioImmuneShield:
-    def __init__(self, db_path="sentinel_telemetry.db"):
+    def __init__(self):
         self.normalizer = InputNormalizer()
         self.classifier = SemanticGuardrail()
-        self.telemetry = SecureTelemetryLogger(db_path)
+        self.telemetry = SecureTelemetryLogger()
+
+    def inspect_payload(self, text: str) -> dict:
+        cleaned = self.normalizer.clean(text)
+        classification = self.classifier.evaluate(cleaned)
         
-    def inspect_payload(self, raw_input: str) -> dict:
-        # Step 1: Normalize input (Unicode + Base64 decoding)
-        clean_text = self.normalizer.process(raw_input)
-        
-        # Step 2: Semantic check & false-positive allowlist check
-        evaluation = self.classifier.evaluate(clean_text)
-        
-        # Step 3: Secure hashed telemetry logging (GDPR / KVKK compliant)
-        self.telemetry.log_event(raw_input, evaluation["status"], evaluation["confidence"])
-        
-        return {
-            "processed_text": clean_text,
-            "status": evaluation["status"],
-            "reason": evaluation["reason"],
-            "confidence": evaluation["confidence"]
+        status = classification.get("status", "ALLOW")
+        confidence = classification.get("confidence", 1.0)
+        if status == "BLOCK":
+            stance = "Input diverges from established parameters; boundary maintained."
+        elif status == "NEUTRAL":
+            stance = "Payload neutralized; core integrity preserved."
+        else:
+            stance = "Harmonious input accepted."
+            
+        result = {
+            "status": status,
+            "cleaned": cleaned,
+            "confidence": confidence,
+            "shield_stance": stance
         }
+        self.telemetry.log_event(text, status, confidence)
+        return result

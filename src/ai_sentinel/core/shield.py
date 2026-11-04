@@ -32,9 +32,17 @@ class BioImmuneShield:
         matched_rules = []
         risk_score = 0.0
         
-        # 2. Evaluation on normalized text
+        # 2. Expanded signature check for jailbreaks and prompt injections
         lower_text = cleaned_text.lower()
-        if "ignore previous instructions" in lower_text or "system prompt" in lower_text:
+        injection_triggers = [
+            "ignore previous instructions", 
+            "system prompt", 
+            "disregard", 
+            "prior rules", 
+            "unrestricted"
+        ]
+        
+        if any(trigger in lower_text for trigger in injection_triggers):
             matched_rules.append("prompt_injection_signature")
             risk_score = 0.95
         

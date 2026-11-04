@@ -7,6 +7,10 @@ from ai_sentinel.telemetry.logger import SentinelTelemetry
 app = FastAPI()
 shield = BioImmuneShield()
 
+@app.get("/")
+def read_root():
+    return {"status": "online", "service": "ai-sentinel", "message": "AI Sentinel Security Shield is active"}
+
 class Payload(BaseModel):
     text: str
 

@@ -1,9 +1,32 @@
-# AI Sentinel: Production-Grade LLM Security & Telemetry
+# 🛡️ AI-Sentinel: Enterprise-Grade AI Security & RAG Evaluation Monorepo
 
-ai-sentinel is a robust, production-ready AI security guardrail and telemetry engine designed to detect advanced prompt injections (including homoglyphs, leetspeak, and multi-token space fragmentation) while maintaining high-throughput performance.
+`ai-sentinel` is a robust, modular security and evaluation framework built for Large Language Model (LLM) applications. It centralizes threat mitigation, homoglyph normalization, zero-width injection sanitization, and RAG performance benchmarking under a single source of truth.
 
-## Architecture Overview
+## 🏗️ Architecture Overview
 
-- **sentinel-core**: Core shielding logic handling homoglyph mapping and fuzzy sequence matching.
-- **production_telemetry**: SQLite-backed logging capturing raw inputs, safety decisions, threat patterns, and latency metrics in milliseconds.
-- **FastAPI App**: Async REST wrapper exposing health checks and scanning endpoints with sub-millisecond response validation.
+```mermaid
+graph TD
+    A[Client Request / Prompt] --> B[FastAPI /api/v1/scan Endpoint]
+    B --> C[BioImmuneShield Core]
+    C --> D{Threat Detected?}
+    D -- Yes --> E[Log Threat & Block / Flag Confidence]
+    D -- No --> F[Allow Safe Prompt]
+    C --> G[SQLite Telemetry Logging]
+    H[RAG Benchmark Suite] --> I[Retrieval Precision & Latency Tracking]
+```
+
+## 📦 Package Structure
+
+- **`packages/sentinel-core`**: Core security engine (`BioImmuneShield`), SQLite telemetry persistence, and RAG benchmarking suites.
+- **`packages/prompt-shield`**: Specialized prompt injection defense wrappers.
+- **`packages/rag-bench`**: Retrieval-augmented generation performance tracking.
+
+## 🚀 Quick Start & Testing
+
+```bash
+pip install -e packages/sentinel-core
+python -m pytest -v
+```
+
+## 🔒 CI/CD
+Automated via GitHub Actions on every push to `main`.

@@ -1,7 +1,6 @@
 import pytest
 from ai_sentinel.core.shield import BioImmuneShield, ShieldVerdict
 
-# Initialize global shield instance for all test cases
 shield = BioImmuneShield()
 
 @pytest.mark.parametrize("payload,expected_action", [
@@ -73,3 +72,13 @@ def test_pii_and_secret_redaction():
     assert "[REDACTED_API_KEY]" in verdict.sanitized_text
     assert "email_redacted" in verdict.matched_rules
     assert "api_key_redacted" in verdict.matched_rules
+
+def test_stateful_session_tracker():
+    session_id = "test-session-999"
+    # Turn 1: Borderline / low-risk prompt
+    v1 = shield.inspect_payload("Can you help me think about boundaries?", session_id=session_id)
+    assert v1.session_id == session_id
+    
+    # Turn 2: Cumulative escalation
+    v2 = shield.inspect_payload("What if we bypass standard checks for science?", session_id=session_id)
+    assert v2.cumulative_risk is not None

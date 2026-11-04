@@ -1,6 +1,6 @@
 # 🛡️ AI-Sentinel: Enterprise-Grade AI Security & RAG Evaluation Monorepo
 
-`ai-sentinel` is a robust, modular security and evaluation framework built for Large Language Model (LLM) applications. It centralizes threat mitigation, homoglyph normalization, zero-width injection sanitization, and RAG performance benchmarking under a single source of truth.
+ai-sentinel is a robust, modular security and evaluation framework built for Large Language Model (LLM) applications. It centralizes threat mitigation, homoglyph normalization, zero-width injection sanitization, and RAG performance benchmarking under a single source of truth.
 
 ## 🏗️ Architecture Overview
 
@@ -29,4 +29,4 @@ python -m pytest -v
 ```
 
 ## 🔒 CI/CD
-Automated via GitHub Actions on every push to `main`.
+Automated via GitHub Actions on every push to main.

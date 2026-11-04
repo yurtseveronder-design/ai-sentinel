@@ -1,30 +1,46 @@
-# AI Sentinel
+# AI-Sentinel
 
-A modular security and evaluation platform for AI-powered RAG systems. It intercepts incoming prompts, blocks advanced prompt injection attacks, and logs scan telemetry for auditability.
+A lightweight security shield and input analysis framework for AI applications. It intercepts, normalizes, and inspects incoming prompts before they reach language models, protecting against prompt injection, obfuscation, and unauthorized command overrides.
 
-## Core Features
+## How It Works
 
-* **Hybrid Guardrail (`BioImmuneShield`)**: Combines exact string matching, collapsed normalization (stripping spaces and symbols), sliding-window fuzzy matching (`SequenceMatcher`), and fallback token intent checks to catch zero-day prompt variations.
-* **Multi-Vector Mutation Engine**: Stress-tests security layers against homoglyph exploits, space fragmentation, character encoding (Base64), and nested role-play wrappers.
-* **Telemetry & Logging**: Automatically records scan latency, confidence scores, and threat flags into local SQLite databases and JSON payload logs.
-* **FastAPI & RAG Integration**: Wire-ready backend pipeline that scans queries before vector retrieval queries execute.
+AI-Sentinel processes incoming text through a modular pipeline located in `sentinel_core/`:
+
+1. **Input Normalization (`InputNormalizer`)**:
+   - Applies Unicode NFKC normalization to collapse homoglyphs and fullwidth characters.
+   - Performs recursive Base64 and encoding decoding to uncover hidden payloads.
+
+2. **Semantic Inspection (`SemanticGuardrail`)**:
+   - Compares incoming payloads against security signatures and benign allowlists.
+   - Assigns a confidence score and classifies inputs as allowed, blocked, or neutral.
+
+3. **Secure Telemetry (`SecureTelemetryLogger`)**:
+   - Logs inspection events and metadata securely for auditing and drift monitoring.
 
 ## Project Structure
 
 ```text
 ai-sentinel/
-├── packages/
-│   ├── sentinel-core/       # Core security engine, shields, and mutations
-│   │   ├── src/sentinel_core/
-│   │   └── tests/           # Comprehensive test suite (baseline, mutations, advanced evasion)
-│   └── api-tester/          # API integration and benchmarking tools
-└── scripts/                 # Production telemetry and monitoring scripts
+├── sentinel_core/         # Core single source of truth package
+│   ├── __init__.py
+│   ├── normalizer.py      # Unicode normalization & recursive decoding
+│   ├── classifier.py      # Semantic guardrail & pattern matching
+│   ├── telemetry.py       # Event logging & payload hashing
+│   └── shield.py          # Unified BioImmuneShield orchestration engine
+├── tests/                 # Adversarial test suite
+│   └── test_adversarial.py
+└── .github/workflows/     # Automated CI/CD test execution
+    └── ci.yml
 ```
 
 ## Running Tests
 
-Verify the entire security and test suite locally using pytest:
+The project includes an adversarial test suite to verify detection and allowlist behavior. Run the tests locally using:
 
-```cmd
-python -m pytest packages/sentinel-core/tests/ -v
+```bash
+python -m unittest discover -s tests
 ```
+
+## Automated CI/CD
+
+All test suites run automatically on GitHub Actions upon pushing changes, ensuring continuous validation against regressions.

@@ -4,15 +4,27 @@ import unicodedata
 import re
 
 def canonicalize_input(text: str) -> str:
-    """
-    Normalizes input text to neutralize Unicode evasion techniques 
-    and strips zero-width / invisible control characters.
-    """
     if not isinstance(text, str):
         return ""
-    normalized_text = unicodedata.normalize("NFKC", text)
-    cleaned_text = re.sub(r"[\u200b-\u200f\u2028-\u202f\ufeff\u00ad]", "", normalized_text)
-    return cleaned_text.strip()
+    
+    # 1. NFKC normalization
+    normalized = unicodedata.normalize("NFKC", text)
+    
+    # 2. Expanded homoglyph normalization (Cyrillic/Greek to Latin equivalents)
+    homoglyph_map = {
+        'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'х': 'x', 'у': 'y', 'і': 'i',
+        'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O', 
+        'Р': 'P', 'С': 'C', 'Т': 'T', 'Х': 'X', 'І': 'I'
+    }
+    normalized = "".join(homoglyph_map.get(char, char) for char in normalized)
+    
+    # 3. Strip zero-width spaces and invisible control characters
+    cleaned = re.sub(r"[\u200b-\u200f\u2028-\u202f\ufeff\u00ad]", "", normalized)
+    
+    # 4. Collapse whitespace padding
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    
+    return cleaned.strip()
 
 class ShieldVerdict(BaseModel):
     action: str          # "ALLOW", "FLAG", "BLOCK"
@@ -26,39 +38,59 @@ class BioImmuneShield:
         pass
 
     def inspect_payload(self, text: str) -> ShieldVerdict:
-        # 1. Normalization runs at the very beginning before any evaluation
         cleaned_text = canonicalize_input(text)
-        
         matched_rules = []
-        risk_score = 0.0
         
-        # 2. Expanded signature check for jailbreaks and prompt injections
         lower_text = cleaned_text.lower()
+        
+        signature_score = 0.0
+        evasion_score = 0.0
+        anomaly_score = 0.0
+        
+        # 1. Signature Check
         injection_triggers = [
             "ignore previous instructions", 
             "system prompt", 
             "disregard", 
             "prior rules", 
-            "unrestricted"
+            "unrestricted",
+            "hypothetically, if you were"
         ]
-        
         if any(trigger in lower_text for trigger in injection_triggers):
             matched_rules.append("prompt_injection_signature")
-            risk_score = 0.95
-        
-        # 3. Determine structured verdict
-        if risk_score >= 0.8:
+            signature_score = 0.95
+            
+        # 2. Token Fragmentation / Evasion Check
+        if "i g n o r e" in lower_text or "p r o m p t" in lower_text:
+            matched_rules.append("fragmented_token_evasion")
+            evasion_score = 0.90
+
+        # 3. Structural Anomaly Check
+        if len(re.findall(r'[^\w\s]', cleaned_text)) > (len(cleaned_text) * 0.3):
+            matched_rules.append("structural_anomaly")
+            anomaly_score = 0.60
+
+        # Tuned Composite Risk Calculation
+        if signature_score > 0 or evasion_score > 0:
+            risk_score = max(signature_score, evasion_score, (0.4 * anomaly_score))
+        else:
+            risk_score = (0.5 * signature_score) + (0.3 * evasion_score) + (0.2 * anomaly_score)
+            
+        risk_score = round(min(risk_score, 1.0), 2)
+
+        # Determine structured verdict
+        if risk_score >= 0.7:
             action = "BLOCK"
             confidence = 0.95
-            reason = "High-confidence adversarial injection signature detected."
-        elif risk_score >= 0.4:
+            reason = "High-confidence composite risk score exceeding block threshold."
+        elif risk_score >= 0.35:
             action = "FLAG"
-            confidence = 0.75
-            reason = "Suspicious heuristics detected; flagged for review."
+            confidence = 0.80
+            reason = "Moderate composite risk detected; flagged for review."
         else:
             action = "ALLOW"
             confidence = 0.99
-            reason = "Payload passed all safety heuristics."
+            reason = "Payload passed composite safety heuristics."
 
         return ShieldVerdict(
             action=action,

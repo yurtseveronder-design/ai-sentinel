@@ -1,19 +1,9 @@
-# AI Sentinel
+# AI Sentinel: Production-Grade LLM Security & Telemetry
 
-A simple, modular workspace for AI security, prompt injection defense, and evaluation tools.
+ai-sentinel is a robust, production-ready AI security guardrail and telemetry engine designed to detect advanced prompt injections (including homoglyphs, leetspeak, and multi-token space fragmentation) while maintaining high-throughput performance.
 
-## Project Structure
+## Architecture Overview
 
-- `packages/sentinel-core`: Core security engine, regex pattern matching, and threat scoring.
-- `apps/sentinel-ui`: Streamlit web interfaces for real-time security guardrails and telemetry.
-
-## Quick Start
-
-1. Install the core package:
-   ```cmd
-   pip install -e packages/sentinel-core
-   ```
-2. Run the security guard app:
-   ```cmd
-   python -m streamlit run apps/sentinel-ui/security_guard_app.py
-   ```
+- **sentinel-core**: Core shielding logic handling homoglyph mapping and fuzzy sequence matching.
+- **production_telemetry**: SQLite-backed logging capturing raw inputs, safety decisions, threat patterns, and latency metrics in milliseconds.
+- **FastAPI App**: Async REST wrapper exposing health checks and scanning endpoints with sub-millisecond response validation.

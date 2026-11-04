@@ -22,7 +22,7 @@ class SecureTelemetryLogger:
     def log_event(self, text: str, status: str, confidence: float):
         # GDPR / KVKK Compliance: Hash the raw message instead of storing plaintext
         payload_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(datetime.timezone.utc).isoformat()
         
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(

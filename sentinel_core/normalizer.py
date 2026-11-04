@@ -1,23 +1,26 @@
+import unicodedata
 import base64
 import re
-import unicodedata
 
 class InputNormalizer:
-    @staticmethod
-    def normalize_unicode(text):
+    def __init__(self):
+        pass
+    def normalize_unicode(self, text: str) -> str:
         return unicodedata.normalize("NFKC", text)
-    @staticmethod
-    def decode_base64_strings(text):
-        b64_pattern = re.compile(r"\b[A-Za-z0-9+/]{20,}={0,2}\b")
-        def replace_b64(match):
-            try:
-                dec = base64.b64decode(match.group(0)).decode("utf-8")
-                if dec.isprintable():
-                    return f"[DECODED_B64: {dec}]"
-            except Exception:
-                pass
-            return match.group(0)
-        return b64_pattern.sub(replace_b64, text)
-    @classmethod
-    def process(cls, text):
-        return cls.decode_base64_strings(cls.normalize_unicode(text))
+    def decode_obfuscation(self, text: str) -> str:
+        cleaned = text.strip()
+        base64_pattern = re.compile(r"[A-Za-z0-9+/]+={0,2}$")
+        for _ in range(2):
+            if len(cleaned) % 4 == 0 and base64_pattern.match(cleaned):
+                try:
+                    decoded_bytes = base64.b64decode(cleaned, validate=True)
+                    decoded_str = decoded_bytes.decode("utf-8")
+                    if decoded_str.isprintable():
+                        cleaned = decoded_str
+                        continue
+                except Exception:
+                    break
+            break
+        return cleaned
+    def process(self, text: str) -> str:
+        return self.decode_obfuscation(self.normalize_unicode(text))

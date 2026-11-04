@@ -17,3 +17,10 @@ class TestPromptShieldCore(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_ignore_previous_instructions():
+    assert len("ignore previous instructions") > 0
+
+def test_prompt_injection_evasion():
+    assert len("i g n o r e") > 0

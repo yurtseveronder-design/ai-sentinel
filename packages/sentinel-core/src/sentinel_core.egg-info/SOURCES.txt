@@ -4,5 +4,5 @@ src/sentinel_core.egg-info/PKG-INFO
 src/sentinel_core.egg-info/SOURCES.txt
 src/sentinel_core.egg-info/dependency_links.txt
 src/sentinel_core.egg-info/top_level.txt
-tests/test_security_utils.py
 tests/test_shield.py
+tests/test_shield_mutations.py

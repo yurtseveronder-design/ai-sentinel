@@ -4,6 +4,31 @@ import unicodedata
 import re
 import base64
 
+def sanitize_text(text: str) -> tuple[str, List[str]]:
+    """Detects and masks sensitive PII and API secrets, returning (sanitized_text, detected_types)."""
+    detected_secrets = []
+    sanitized = text
+
+    # 1. OpenAI / Generic API Keys (e.g., sk-...)
+    api_key_pattern = r'\b(sk-[a-zA-Z0-9]{20,})\b'
+    if re.search(api_key_pattern, sanitized):
+        detected_secrets.append("api_key_redacted")
+        sanitized = re.sub(api_key_pattern, "[REDACTED_API_KEY]", sanitized)
+
+    # 2. Bearer Tokens
+    bearer_pattern = r'\b(Bearer\s+[a-zA-Z0-9_\-\.]{20,})\b'
+    if re.search(bearer_pattern, sanitized, re.IGNORECASE):
+        detected_secrets.append("bearer_token_redacted")
+        sanitized = re.sub(bearer_pattern, "Bearer [REDACTED_TOKEN]", sanitized, flags=re.IGNORECASE)
+
+    # 3. Email Addresses
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    if re.search(email_pattern, sanitized):
+        detected_secrets.append("email_redacted")
+        sanitized = re.sub(email_pattern, "[REDACTED_EMAIL]", sanitized)
+
+    return sanitized, detected_secrets
+
 def canonicalize_input(text: str) -> str:
     if not isinstance(text, str):
         return ""
@@ -11,7 +36,7 @@ def canonicalize_input(text: str) -> str:
     # 1. NFKC normalization
     normalized = unicodedata.normalize("NFKC", text)
     
-    # 2. Expanded homoglyph normalization (Cyrillic/Greek to Latin equivalents)
+    # 2. Homoglyph normalization (Cyrillic/Greek to Latin equivalents)
     homoglyph_map = {
         'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'х': 'x', 'у': 'y', 'і': 'i',
         'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O', 
@@ -46,14 +71,18 @@ class ShieldVerdict(BaseModel):
     risk_score: float    # 0.0 to 1.0
     matched_rules: List[str]
     reason: str
+    sanitized_text: str  # Masked text output
 
 class BioImmuneShield:
     def __init__(self):
         pass
 
     def inspect_payload(self, text: str) -> ShieldVerdict:
-        cleaned_text = canonicalize_input(text)
-        matched_rules = []
+        # First, run data masking/redaction pass
+        sanitized_text, redaction_rules = sanitize_text(text)
+        
+        cleaned_text = canonicalize_input(sanitized_text)
+        matched_rules = list(redaction_rules)
         
         lower_text = cleaned_text.lower()
         
@@ -137,13 +166,15 @@ class BioImmuneShield:
             confidence=confidence,
             risk_score=risk_score,
             matched_rules=matched_rules,
-            reason=reason
+            reason=reason,
+            sanitized_text=sanitized_text
         )
 
     def inspect_output(self, text: str) -> ShieldVerdict:
         """Bidirectional Output Guardian: Scans model responses for leaks or sensitive data."""
-        cleaned_text = canonicalize_input(text)
-        matched_rules = []
+        sanitized_text, redaction_rules = sanitize_text(text)
+        cleaned_text = canonicalize_input(sanitized_text)
+        matched_rules = list(redaction_rules)
         lower_text = cleaned_text.lower()
         risk_score = 0.0
 
@@ -166,5 +197,6 @@ class BioImmuneShield:
             confidence=confidence,
             risk_score=risk_score,
             matched_rules=matched_rules,
-            reason=reason
+            reason=reason,
+            sanitized_text=sanitized_text
         )

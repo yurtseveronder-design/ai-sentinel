@@ -13,3 +13,21 @@ A lightweight Python prototype for input inspection and RAG security proxying. I
 ```bash
 pip install -e .
 python -m pytest tests/
+
+ai-sentinel/
+├── config/
+│   └── threat_signatures.yaml
+├── src/
+│   └── ai_sentinel/
+│       ├── api/
+│       │   └── gateway.py
+│       └── core/
+│           └── shield.py
+├── tests/
+│   ├── test_adversarial.py
+│   ├── test_adversarial_matrix.py
+│   ├── test_api.py
+│   └── test_shield.py
+├── pyproject.toml
+├── LICENSE.md
+└── README.md

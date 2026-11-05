@@ -26,7 +26,12 @@ def load_audit_logs():
                 pass
     if not records:
         return pd.DataFrame()
-    return pd.DataFrame(records)
+    df = pd.DataFrame(records)
+    # Ensure text/list columns are stringified for clean Arrow serialization
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].astype(str)
+    return df
 
 df = load_audit_logs()
 
@@ -59,7 +64,9 @@ else:
     with col_b:
         st.subheader("Risk Score Trend")
         if "risk_score" in df.columns:
-            st.line_chart(df["risk_score"])
+            # Convert risk_score to numeric for plotting line chart safely
+            numeric_risk = pd.to_numeric(df["risk_score"], errors="coerce")
+            st.line_chart(numeric_risk)
 
     st.divider()
     st.subheader("📋 Detailed Audit Ledger Records")

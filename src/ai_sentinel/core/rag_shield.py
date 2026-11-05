@@ -1,26 +1,15 @@
-import re
 from typing import List, Dict, Any
+from ai_sentinel.core.config_loader import ConfigLoader
 
 class RagShield:
     """
-    RAG-specific security guardrail to scan retrieved context chunks 
-    for indirect prompt injection, malicious delimiters, and payload hijacking.
+    RAG-specific security guardrail driven by threat_signatures.yaml.
     """
     def __init__(self):
-        # Suspicious markers often used to break out of context blocks in RAG
-        self.injection_markers = [
-            "ignore previous instructions",
-            "system:",
-            "assistant:",
-            "new instructions:",
-            "disregard context",
-            "you must now act as"
-        ]
+        cfg = ConfigLoader.load_config()
+        self.injection_markers = cfg.get("rag_injection_markers", [])
 
     def scan_chunks(self, chunks: List[str]) -> Dict[str, Any]:
-        """
-        Scans a list of retrieved RAG document chunks for embedded prompt injection attacks.
-        """
         flagged_chunks = []
         risk_score = 0.0
 

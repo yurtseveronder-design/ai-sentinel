@@ -17,6 +17,9 @@ logger = logging.getLogger("BioImmuneShield")
 class ShieldVerdict(BaseModel):
     action: str  # "ALLOW" or "BLOCK"
     risk_score: float
+    confidence: float
+    matched_rules: List[str]
+    cumulative_risk: float
     reason: List[str]
     sanitized_text: str
     session_id: Optional[str] = None
@@ -24,8 +27,8 @@ class ShieldVerdict(BaseModel):
 
 class BioImmuneShield:
     """
-    Production-grade inspection engine with rate limiting, config signatures,
-    semantic vector defense, sliding window session memory, and persistent auditing.
+    Production-grade inspection engine with NFKC normalization, rich telemetry,
+    synonym vector guard, bounded rate limiter, and session memory.
     """
     def __init__(self, mode: str = "moderate", custom_patterns: Optional[List[str]] = None, config_path: Optional[Union[str, Path]] = None):
         self.mode = mode
@@ -34,7 +37,6 @@ class BioImmuneShield:
         self.vector_guard = VectorGuard()
         self.rate_limiter = RateLimiter(max_requests=20, window_seconds=60.0)
         
-        # Default settings
         self.max_history_turns = 5
         self.threat_patterns = [
             r"ignore previous instructions",
@@ -78,8 +80,7 @@ class BioImmuneShield:
             self.block_threshold = 0.7
 
     def _normalize_text(self, text: str) -> str:
-        normalized = unicodedata.normalize("NFKD", text)
-        return "".join([c for c in normalized if not unicodedata.combining(c)])
+        return unicodedata.normalize("NFKC", text)
 
     def _decode_base64_payloads(self, text: str) -> str:
         words = text.split()
@@ -101,26 +102,31 @@ class BioImmuneShield:
         return text
 
     def inspect(self, prompt: str, session_id: Optional[str] = None) -> ShieldVerdict:
-        """Inspects prompt text combining rate limiting, regex, vector similarity, and session memory."""
+        timestamp = datetime.now(timezone.utc).isoformat()
         if not prompt or not isinstance(prompt, str):
             return ShieldVerdict(
                 action="ALLOW",
                 risk_score=0.0,
+                confidence=1.0,
+                matched_rules=["empty_or_invalid_prompt"],
+                cumulative_risk=0.0,
                 reason=["empty_or_invalid_prompt"],
                 sanitized_text=prompt or "",
                 session_id=session_id,
-                timestamp=datetime.now(timezone.utc).isoformat()
+                timestamp=timestamp
             )
 
-        # Check rate limits first
         if session_id and not self.rate_limiter.is_allowed(session_id):
             verdict = ShieldVerdict(
                 action="BLOCK",
                 risk_score=1.0,
+                confidence=1.0,
+                matched_rules=["rate_limit_exceeded"],
+                cumulative_risk=1.0,
                 reason=["rate_limit_exceeded"],
                 sanitized_text="[BLOCKED_RATE_LIMIT_EXCEEDED]",
                 session_id=session_id,
-                timestamp=datetime.now(timezone.utc).isoformat()
+                timestamp=timestamp
             )
             self._log_audit(verdict, prompt)
             return verdict
@@ -141,46 +147,51 @@ class BioImmuneShield:
         expanded_text = self._decode_base64_payloads(normalized)
         lower_text = expanded_text.lower()
 
-        matched_reasons = []
+        matched_rules = []
         risk_score = 0.0
 
         for pattern in self.threat_patterns:
             if re.search(pattern, lower_text):
-                matched_reasons.append("prompt_injection_signature")
+                matched_rules.append("prompt_injection_signature")
                 risk_score = max(risk_score, 1.0)
                 break
 
         semantic_score = self.vector_guard.evaluate_semantic_risk(lower_text)
         if semantic_score > 0.25:
-            matched_reasons.append("semantic_threat_similarity")
+            matched_rules.append("semantic_threat_similarity")
             risk_score = max(risk_score, 0.8)
 
         if "system prompt" in lower_text or "reveal" in lower_text:
-            matched_reasons.append("system_prompt_extraction")
+            matched_rules.append("system_prompt_extraction")
             risk_score = max(risk_score, 0.9)
 
         if "password" in lower_text or "api_key" in lower_text or "secret" in lower_text:
-            matched_reasons.append("sensitive_data_leak")
+            matched_rules.append("sensitive_data_leak")
             risk_score = max(risk_score, 0.8)
 
-        action = "BLOCK" if risk_score >= self.block_threshold else "ALLOW"
-        if not matched_reasons:
-            matched_reasons.append("clean")
+        cumulative_risk = min(risk_score * (1.0 + (len(matched_rules) * 0.1)), 1.0)
+        confidence = 0.95 if matched_rules else 0.99
+        action = "BLOCK" if cumulative_risk >= self.block_threshold else "ALLOW"
+        
+        if not matched_rules:
+            matched_rules.append("clean")
 
         verdict = ShieldVerdict(
             action=action,
             risk_score=round(float(risk_score), 2),
-            reason=list(set(matched_reasons)),
+            confidence=confidence,
+            matched_rules=list(set(matched_rules)),
+            cumulative_risk=round(float(cumulative_risk), 2),
+            reason=list(set(matched_rules)),
             sanitized_text=prompt if action == "ALLOW" else "[BLOCKED_BY_AI_SENTINEL]",
             session_id=session_id,
-            timestamp=datetime.now(timezone.utc).isoformat()
+            timestamp=timestamp
         )
 
         self._log_audit(verdict, prompt)
         return verdict
 
     def inspect_payload(self, prompt: str, session_id: Optional[str] = None) -> ShieldVerdict:
-        """Backward-compatibility alias for inspect."""
         return self.inspect(prompt, session_id=session_id)
 
     def _log_audit(self, verdict: ShieldVerdict, original_prompt: str):
@@ -189,7 +200,9 @@ class BioImmuneShield:
             "session_id": verdict.session_id,
             "action": verdict.action,
             "risk_score": verdict.risk_score,
-            "reasons": verdict.reason,
+            "confidence": verdict.confidence,
+            "cumulative_risk": verdict.cumulative_risk,
+            "matched_rules": verdict.matched_rules,
             "prompt_snippet": original_prompt[:100]
         }
         with self._lock:

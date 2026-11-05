@@ -1,6 +1,0 @@
-.git
-.github
-__pycache__
-.pytest_cache
-report.html
-assets/

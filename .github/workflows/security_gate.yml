@@ -27,7 +27,6 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install .
         pip install pytest pydantic fastapi httpx pyyaml
 
     - name: Run Pytest Suite

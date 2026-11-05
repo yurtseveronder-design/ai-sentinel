@@ -1,18 +1,23 @@
-# AI-Sentinel
+# ai-sentinel
 
-A lightweight Python prototype for input inspection and RAG security proxying. It intercepts, normalizes, and inspects prompts before they reach an LLM to defend against basic prompt injection, obfuscation, and PII exposure.
+A lightweight Python security library for checking LLM prompts against common threats, rate-limiting sessions, and running basic safety evaluations.
 
 ## Features
-- **Input Normalization**: Unicode NFKC normalization, homoglyph mapping, and basic base64 decoding.
-- **Threat Detection**: Signature/keyword matching, fragmented token checks, and optional vector semantic similarity scoring.
-- **Data Protection**: Basic PII and API key redaction.
-- **Audit Logging**: JSONL audit trail logging of inspection verdicts.
-- **FastAPI Gateway**: Simple `/v1/inspect` inspection endpoint with Prometheus metrics.
+- **Prompt Inspection**: Catches known injection signatures, system prompt extraction attempts, and base64 payloads using NFKC normalization.
+- **Semantic Check**: Uses basic term-frequency cosine similarity with synonym mapping to catch paraphrased attacks.
+- **Rate Limiting**: Sliding-window rate limiter per session with built-in memory cleanup.
+- **FastAPI Middleware**: Optional middleware to automatically inspect incoming web requests.
+- **CLI Utility**: Quick command-line interface to test prompts directly from your terminal.
+- **Evaluation Harness**: Runs a small test suite to measure detection rate, false positives, and latency.
 
-## Installation & Testing
+## Installation
+
+Clone the repository and install dependencies:
+
 ```bash
+git clone [https://github.com/yurtseveronder-design/ai-sentinel.git](https://github.com/yurtseveronder-design/ai-sentinel.git)
+cd ai-sentinel
 pip install -e .
-python -m pytest tests/
 
 ai-sentinel/
 ├── config/

@@ -1,3 +1,4 @@
+
 from ai_sentinel.integrations.decorator import secure_prompt, PromptBlockedError
 from ai_sentinel.integrations.openai_proxy import SentinelOpenAIProxy, SentinelOpenAIException
 from ai_sentinel.core.shield import BioImmuneShield
@@ -31,12 +32,17 @@ except PromptBlockedError as e:
 # 2. Testing the OpenAI Proxy Wrapper
 print("\n[2] Testing OpenAI Client Proxy Wrapper...")
 
-class MockOpenAIClient:
-    class ChatCompletions:
-        def create(self, *args, **kwargs):
-            return {"choices": [{"message": {"content": "Mock OpenAI Response"}}]}
+class MockCompletions:
+    def create(self, *args, **kwargs):
+        return {"choices": [{"message": {"content": "Mock OpenAI Response"}}]}
+
+class MockChat:
     def __init__(self):
-        self.chat = self.ChatCompletions()
+        self.completions = MockCompletions()
+
+class MockOpenAIClient:
+    def __init__(self):
+        self.chat = MockChat()
 
 base_client = MockOpenAIClient()
 shield = BioImmuneShield(mode="moderate")
@@ -61,5 +67,5 @@ except SentinelOpenAIException as e:
     print(f"  -> Malicious OpenAI Call Blocked Successfully! Reason: {e.verdict.reason}")
 
 print("=" * 60)
-print("All integration verification tests completed.")
+print("All integration verification tests completed successfully.")
 print("=" * 60)

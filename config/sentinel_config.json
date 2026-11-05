@@ -1,0 +1,9 @@
+{
+  "mode": "moderate",
+  "block_threshold": 0.7,
+  "max_history_turns": 5,
+  "custom_patterns": [
+    "malicious payload override",
+    "unauthorized access token"
+  ]
+}

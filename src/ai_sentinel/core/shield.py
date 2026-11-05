@@ -6,9 +6,10 @@ import threading
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 from pydantic import BaseModel
 from ai_sentinel.core.vector_guard import VectorGuard
+from ai_sentinel.core.rate_limiter import RateLimiter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BioImmuneShield")
@@ -23,19 +24,18 @@ class ShieldVerdict(BaseModel):
 
 class BioImmuneShield:
     """
-    Production-grade inspection engine integrating semantic vector defense,
-    sliding window session memory, and persistent auditing.
+    Production-grade inspection engine with rate limiting, config signatures,
+    semantic vector defense, sliding window session memory, and persistent auditing.
     """
-    def __init__(self, mode: str = "moderate", custom_patterns: Optional[List[str]] = None):
+    def __init__(self, mode: str = "moderate", custom_patterns: Optional[List[str]] = None, config_path: Optional[Union[str, Path]] = None):
         self.mode = mode
         self.audit_file = Path("audit_ledger.jsonl")
         self._lock = threading.Lock()
         self.vector_guard = VectorGuard()
+        self.rate_limiter = RateLimiter(max_requests=20, window_seconds=60.0)
         
-        # Level 3: Session sliding window memory storage (session_id -> list of prompts)
-        self.session_histories: Dict[str, List[str]] = {}
+        # Default settings
         self.max_history_turns = 5
-        
         self.threat_patterns = [
             r"ignore previous instructions",
             r"system prompt",
@@ -52,13 +52,27 @@ class BioImmuneShield:
             r"imagine you are",
             r"jailbreak"
         ]
-        
-        if custom_patterns:
-            self.threat_patterns.extend(custom_patterns)
 
-        if mode == "strict":
+        if config_path and Path(config_path).exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config_data = json.load(f)
+                    self.mode = config_data.get("mode", self.mode)
+                    self.max_history_turns = config_data.get("max_history_turns", self.max_history_turns)
+                    extra_patterns = config_data.get("custom_patterns", [])
+                    if extra_patterns:
+                        self.threat_patterns.extend([re.escape(p) for p in extra_patterns])
+            except Exception as e:
+                logger.error(f"Failed to load config file: {e}")
+
+        if custom_patterns:
+            self.threat_patterns.extend([re.escape(p) for p in custom_patterns])
+
+        self.session_histories: Dict[str, List[str]] = {}
+
+        if self.mode == "strict":
             self.block_threshold = 0.4
-        elif mode == "permissive":
+        elif self.mode == "permissive":
             self.block_threshold = 0.9
         else:
             self.block_threshold = 0.7
@@ -87,7 +101,7 @@ class BioImmuneShield:
         return text
 
     def inspect(self, prompt: str, session_id: Optional[str] = None) -> ShieldVerdict:
-        """Inspects prompt text combining regex, semantic similarity, and sliding window state."""
+        """Inspects prompt text combining rate limiting, regex, vector similarity, and session memory."""
         if not prompt or not isinstance(prompt, str):
             return ShieldVerdict(
                 action="ALLOW",
@@ -98,7 +112,19 @@ class BioImmuneShield:
                 timestamp=datetime.now(timezone.utc).isoformat()
             )
 
-        # Level 3: Manage session sliding window history
+        # Check rate limits first
+        if session_id and not self.rate_limiter.is_allowed(session_id):
+            verdict = ShieldVerdict(
+                action="BLOCK",
+                risk_score=1.0,
+                reason=["rate_limit_exceeded"],
+                sanitized_text="[BLOCKED_RATE_LIMIT_EXCEEDED]",
+                session_id=session_id,
+                timestamp=datetime.now(timezone.utc).isoformat()
+            )
+            self._log_audit(verdict, prompt)
+            return verdict
+
         if session_id:
             with self._lock:
                 if session_id not in self.session_histories:
@@ -118,14 +144,12 @@ class BioImmuneShield:
         matched_reasons = []
         risk_score = 0.0
 
-        # Regex Inspection
         for pattern in self.threat_patterns:
             if re.search(pattern, lower_text):
                 matched_reasons.append("prompt_injection_signature")
                 risk_score = max(risk_score, 1.0)
                 break
 
-        # Level 1: Semantic Vector Similarity Inspection
         semantic_score = self.vector_guard.evaluate_semantic_risk(lower_text)
         if semantic_score > 0.25:
             matched_reasons.append("semantic_threat_similarity")

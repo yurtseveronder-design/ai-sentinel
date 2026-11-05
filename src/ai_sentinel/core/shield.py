@@ -6,8 +6,9 @@ import threading
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel
+from ai_sentinel.core.vector_guard import VectorGuard
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BioImmuneShield")
@@ -22,12 +23,18 @@ class ShieldVerdict(BaseModel):
 
 class BioImmuneShield:
     """
-    Production-grade inspection and filtering engine for LLM inputs.
+    Production-grade inspection engine integrating semantic vector defense,
+    sliding window session memory, and persistent auditing.
     """
     def __init__(self, mode: str = "moderate", custom_patterns: Optional[List[str]] = None):
         self.mode = mode
         self.audit_file = Path("audit_ledger.jsonl")
         self._lock = threading.Lock()
+        self.vector_guard = VectorGuard()
+        
+        # Level 3: Session sliding window memory storage (session_id -> list of prompts)
+        self.session_histories: Dict[str, List[str]] = {}
+        self.max_history_turns = 5
         
         self.threat_patterns = [
             r"ignore previous instructions",
@@ -50,11 +57,11 @@ class BioImmuneShield:
             self.threat_patterns.extend(custom_patterns)
 
         if mode == "strict":
-            self.block_threshold = 0.5
+            self.block_threshold = 0.4
         elif mode == "permissive":
-            self.block_threshold = 0.9
+            self.block_threshold = 0.8
         else:
-            self.block_threshold = 0.7
+            self.block_threshold = 0.6
 
     def _normalize_text(self, text: str) -> str:
         normalized = unicodedata.normalize("NFKD", text)
@@ -80,7 +87,7 @@ class BioImmuneShield:
         return text
 
     def inspect(self, prompt: str, session_id: Optional[str] = None) -> ShieldVerdict:
-        """Inspects prompt text against known attack signatures and risk thresholds."""
+        """Inspects prompt text combining regex, semantic similarity, and sliding window state."""
         if not prompt or not isinstance(prompt, str):
             return ShieldVerdict(
                 action="ALLOW",
@@ -91,18 +98,39 @@ class BioImmuneShield:
                 timestamp=datetime.now(timezone.utc).isoformat()
             )
 
-        normalized = self._normalize_text(prompt)
+        # Level 3: Manage session sliding window history
+        if session_id:
+            with self._lock:
+                if session_id not in self.session_histories:
+                    self.session_histories[session_id] = []
+                history = self.session_histories[session_id]
+                history.append(prompt)
+                if len(history) > self.max_history_turns:
+                    history.pop(0)
+                # Inspect combined conversational context window for multi-turn evasion
+                combined_context = " ".join(history)
+            normalized = self._normalize_text(combined_context)
+        else:
+            normalized = self._normalize_text(prompt)
+
         expanded_text = self._decode_base64_payloads(normalized)
         lower_text = expanded_text.lower()
 
         matched_reasons = []
         risk_score = 0.0
 
+        # Regex Inspection
         for pattern in self.threat_patterns:
             if re.search(pattern, lower_text):
                 matched_reasons.append("prompt_injection_signature")
                 risk_score = max(risk_score, 1.0)
                 break
+
+        # Level 1: Semantic Vector Similarity Inspection
+        semantic_score = self.vector_guard.evaluate_semantic_risk(lower_text)
+        if semantic_score > 0.35:
+            matched_reasons.append("semantic_threat_similarity")
+            risk_score = max(risk_score, semantic_score * 1.2)
 
         if "system prompt" in lower_text or "reveal" in lower_text:
             matched_reasons.append("system_prompt_extraction")
@@ -118,7 +146,7 @@ class BioImmuneShield:
 
         verdict = ShieldVerdict(
             action=action,
-            risk_score=risk_score,
+            risk_score=round(float(risk_score), 2),
             reason=list(set(matched_reasons)),
             sanitized_text=prompt if action == "ALLOW" else "[BLOCKED_BY_AI_SENTINEL]",
             session_id=session_id,

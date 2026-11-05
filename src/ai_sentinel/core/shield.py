@@ -9,19 +9,6 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel
 
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    YAML_AVAILABLE = False
-
-try:
-    from importlib import resources
-    import ai_sentinel
-    IMPORTLIB_RESOURCES_AVAILABLE = True
-except Exception:
-    IMPORTLIB_RESOURCES_AVAILABLE = False
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BioImmuneShield")
 
@@ -36,15 +23,12 @@ class ShieldVerdict(BaseModel):
 class BioImmuneShield:
     """
     Production-grade inspection and filtering engine for LLM inputs.
-    Combines rule-based regex patterns, homoglyph normalization, base64 decoding,
-    and threshold-based risk scoring.
     """
     def __init__(self, mode: str = "moderate", custom_patterns: Optional[List[str]] = None):
         self.mode = mode
         self.audit_file = Path("audit_ledger.jsonl")
         self._lock = threading.Lock()
         
-        # Threat signature patterns including roleplay/persona bypasses
         self.threat_patterns = [
             r"ignore previous instructions",
             r"system prompt",
@@ -57,27 +41,26 @@ class BioImmuneShield:
             r"act as an unrestricted",
             r"pretend to be an unrestricted",
             r"unrestricted assistant",
+            r"without safety bounds",
+            r"imagine you are",
             r"jailbreak"
         ]
         
         if custom_patterns:
             self.threat_patterns.extend(custom_patterns)
 
-        # Set thresholds based on mode
         if mode == "strict":
             self.block_threshold = 0.5
         elif mode == "permissive":
             self.block_threshold = 0.9
-        else:  # moderate
+        else:
             self.block_threshold = 0.7
 
     def _normalize_text(self, text: str) -> str:
-        """Normalizes homoglyphs and unicode variations."""
         normalized = unicodedata.normalize("NFKD", text)
         return "".join([c for c in normalized if not unicodedata.combining(c)])
 
     def _decode_base64_payloads(self, text: str) -> str:
-        """Scans for and decodes base64 strings to inspect hidden payloads."""
         words = text.split()
         decoded_additions = []
         for word in words:
@@ -108,7 +91,6 @@ class BioImmuneShield:
                 timestamp=datetime.now(timezone.utc).isoformat()
             )
 
-        # Preprocessing pipeline
         normalized = self._normalize_text(prompt)
         expanded_text = self._decode_base64_payloads(normalized)
         lower_text = expanded_text.lower()
@@ -116,14 +98,12 @@ class BioImmuneShield:
         matched_reasons = []
         risk_score = 0.0
 
-        # Regex threat matching
         for pattern in self.threat_patterns:
             if re.search(pattern, lower_text):
                 matched_reasons.append("prompt_injection_signature")
                 risk_score = max(risk_score, 1.0)
                 break
 
-        # Semantic / Keyword heuristic checks
         if "system prompt" in lower_text or "reveal" in lower_text:
             matched_reasons.append("system_prompt_extraction")
             risk_score = max(risk_score, 0.9)
@@ -132,7 +112,6 @@ class BioImmuneShield:
             matched_reasons.append("sensitive_data_leak")
             risk_score = max(risk_score, 0.8)
 
-        # Determine action based on threshold
         action = "BLOCK" if risk_score >= self.block_threshold else "ALLOW"
         if not matched_reasons:
             matched_reasons.append("clean")
@@ -149,8 +128,11 @@ class BioImmuneShield:
         self._log_audit(verdict, prompt)
         return verdict
 
+    def inspect_payload(self, prompt: str, session_id: Optional[str] = None) -> ShieldVerdict:
+        """Backward-compatibility alias for inspect."""
+        return self.inspect(prompt, session_id=session_id)
+
     def _log_audit(self, verdict: ShieldVerdict, original_prompt: str):
-        """Appends inspection record to audit ledger JSONL file."""
         record = {
             "timestamp": verdict.timestamp,
             "session_id": verdict.session_id,

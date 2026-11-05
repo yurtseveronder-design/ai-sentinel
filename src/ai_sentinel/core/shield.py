@@ -59,9 +59,9 @@ class BioImmuneShield:
         if mode == "strict":
             self.block_threshold = 0.4
         elif mode == "permissive":
-            self.block_threshold = 0.8
+            self.block_threshold = 0.9
         else:
-            self.block_threshold = 0.6
+            self.block_threshold = 0.7
 
     def _normalize_text(self, text: str) -> str:
         normalized = unicodedata.normalize("NFKD", text)
@@ -107,7 +107,6 @@ class BioImmuneShield:
                 history.append(prompt)
                 if len(history) > self.max_history_turns:
                     history.pop(0)
-                # Inspect combined conversational context window for multi-turn evasion
                 combined_context = " ".join(history)
             normalized = self._normalize_text(combined_context)
         else:
@@ -128,9 +127,9 @@ class BioImmuneShield:
 
         # Level 1: Semantic Vector Similarity Inspection
         semantic_score = self.vector_guard.evaluate_semantic_risk(lower_text)
-        if semantic_score > 0.35:
+        if semantic_score > 0.25:
             matched_reasons.append("semantic_threat_similarity")
-            risk_score = max(risk_score, semantic_score * 1.2)
+            risk_score = max(risk_score, 0.8)
 
         if "system prompt" in lower_text or "reveal" in lower_text:
             matched_reasons.append("system_prompt_extraction")

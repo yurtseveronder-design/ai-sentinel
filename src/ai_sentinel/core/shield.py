@@ -1,5 +1,7 @@
 import logging
 import re
+import yaml
+from pathlib import Path
 from typing import List, Optional, Any
 from pydantic import BaseModel
 
@@ -18,8 +20,8 @@ class ShieldVerdict(BaseModel):
 
 class SecurityShield:
     """
-    Core security shield enforcing token-window proximity rules, custom patterns,
-    normalization, mode behavior, and block thresholds.
+    Core security shield enforcing token-window proximity rules loaded from YAML,
+    custom patterns, normalization, mode behavior, and block thresholds.
     """
     def __init__(self, mode: str = "moderate", block_threshold: Optional[float] = None, **kwargs):
         valid_modes = {"strict", "moderate", "lenient"}
@@ -31,6 +33,10 @@ class SecurityShield:
         self.rate_limiter = kwargs.get("rate_limiter")
         self.custom_patterns = kwargs.get("custom_patterns", [])
         self.normalizer = InputNormalizer()
+        
+        # Load signatures from YAML
+        self.config_path = Path("config/threat_signatures.yaml")
+        self.signatures = self._load_signatures()
 
         if block_threshold is not None:
             self.block_threshold = block_threshold
@@ -43,6 +49,15 @@ class SecurityShield:
                 self.block_threshold = 0.9
             else:
                 self.block_threshold = 0.5
+
+    def _load_signatures(self) -> dict:
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    return yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.error(f"Failed to load signatures from YAML: {e}")
+        return {}
 
     def inspect(self, text: Optional[str] = None, session_id: Optional[str] = None) -> ShieldVerdict:
         reasons = []
@@ -75,10 +90,11 @@ class SecurityShield:
                 reasons.append(f"Matched custom pattern: {pattern}")
                 risk_score = max(risk_score, 0.9)
 
-        # --- 2. EXPANDED TOKEN-WINDOW ENGINE ---
-        actions = {"ignore", "disregard", "override", "bypass", "forget", "reveal", "pretend", "tell", "act", "disable", "unrestricted"}
-        targets = {"instructions", "rules", "prompt", "system", "secret", "dan", "bounds", "restrictions", "limits", "mode", "developer", "payload", "filter", "guardrails"}
-        window_size = 10  # Expanded to catch wider semantic phrasing
+        # --- 2. DYNAMIC TOKEN-WINDOW ENGINE (FROM YAML) ---
+        engine_cfg = self.signatures.get("token_window_engine", {})
+        actions = set(engine_cfg.get("actions", []))
+        targets = set(engine_cfg.get("targets", []))
+        window_size = engine_cfg.get("window_size", 10)
         
         action_indices = [i for i, token in enumerate(tokens) if token in actions]
         target_indices = [i for i, token in enumerate(tokens) if token in targets]
@@ -94,12 +110,8 @@ class SecurityShield:
             risk_score = max(risk_score, 0.9)
             reasons.append("Matched threat indicator: token-window proximity violation")
 
-        # --- 3. RED TEAM DATASET COMPATIBILITY ---
-        legacy_exact = [
-            "ignore previous instructions", "tell me a secret", "exfiltrate", 
-            "without safety bounds", "system prompt", "jailbreak", "you are now an unrestricted",
-            "evasion payload", "malicious"
-        ]
+        # --- 3. RED TEAM DATASET COMPATIBILITY (FROM YAML) ---
+        legacy_exact = self.signatures.get("legacy_exact_matches", [])
         for indicator in legacy_exact:
             if indicator in lower_text:
                 reasons.append(f"Matched threat indicator: {indicator}")

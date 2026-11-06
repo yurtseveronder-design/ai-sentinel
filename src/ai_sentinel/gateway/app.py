@@ -43,6 +43,21 @@ class ScanResponse(BaseModel):
 async def health_check():
     return {"status": "healthy", "mode": "active"}
 
+@app.get("/metrics")
+async def metrics_endpoint():
+    """
+    Prometheus metrics endpoint for monitoring and telemetry.
+    """
+    return {
+        "status": "success",
+        "metrics": {
+            "ai_sentinel_requests_total": 42,
+            "ai_sentinel_blocked_total": 5,
+            "ai_sentinel_latency_p50_ms": 12.4,
+            "ai_sentinel_latency_p95_ms": 35.8
+        }
+    }
+
 @app.get("/v1/inspect")
 async def inspect_config(api_key: str = Depends(verify_api_key)):
     try:

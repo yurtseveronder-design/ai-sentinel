@@ -67,18 +67,20 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
         is_flagged = verdict.flagged
         reasons = list(verdict.reason)
         max_risk = verdict.risk_score
+        flagged_chunk_indices = []
 
         if payload.chunks:
             for idx, chunk in enumerate(payload.chunks):
                 chunk_verdict = shield.inspect(text=chunk, session_id=payload.session_id)
                 if chunk_verdict.flagged:
                     is_flagged = True
+                    flagged_chunk_indices.append(idx)
                     reasons.append(f"Chunk {idx}: threat detected")
                     max_risk = max(max_risk, chunk_verdict.risk_score)
 
         action = "BLOCK" if is_flagged else "ALLOW"
 
-        return {
+        response_data = {
             "action": action,
             "flagged": is_flagged,
             "is_blocked": is_flagged,
@@ -87,6 +89,10 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             "sanitized_text": "" if is_flagged else text_to_scan,
             "risk_score": max_risk
         }
+        if payload.chunks:
+            response_data["flagged_chunks"] = flagged_chunk_indices
+
+        return response_data
     except Exception as e:
         logger.error("Error during scan: %s", e, exc_info=True)
         raise HTTPException(

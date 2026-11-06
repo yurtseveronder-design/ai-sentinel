@@ -23,6 +23,15 @@ class ScanResponse(BaseModel):
 async def health_check():
     return {"status": "healthy", "mode": "active"}
 
+@app.get("/v1/inspect")
+async def inspect_config():
+    try:
+        loader = ConfigLoader()
+        config_data = loader.load_config()
+        return {"status": "success", "config": config_data}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Configuration load error")
+
 @app.post("/v1/scan", response_model=ScanResponse)
 async def scan_payload(payload: ScanRequest):
     text_to_scan = payload.prompt

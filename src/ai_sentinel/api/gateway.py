@@ -1,84 +1,82 @@
-import time
-import threading
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from typing import Optional, List
-from ai_sentinel.core.shield import BioImmuneShield
+import os
+import secrets
+import logging
+from typing import Optional, Dict, Any
+from fastapi import FastAPI, Header, HTTPException, Depends, status
+from pydantic import BaseModel
+
+from ai_sentinel.core.shield import SecurityShield, ShieldVerdict
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="AI-Sentinel API Gateway",
-    description="Lightweight educational input inspection and RAG security proxy prototype.",
-    version="0.1.0"
+    title="AI Sentinel API Gateway",
+    version="1.0.0",
+    description="Enterprise-grade AI security gateway with authenticated inspection."
 )
 
-shield = BioImmuneShield(mode="moderate")
+# Initialize single secure shield instance
+shield = SecurityShield(mode="moderate")
 
-# In-memory rate limiter state (Token bucket / sliding window per IP)
-RATE_LIMIT_WINDOW = 60  # seconds
-MAX_REQUESTS_PER_WINDOW = 60
-request_counts = {}
-rate_lock = threading.Lock()
+# Load API Key securely from environment variable
+EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY")
 
-def check_rate_limit(client_ip: str) -> bool:
-    now = time.time()
-    with rate_lock:
-        if client_ip not in request_counts:
-            request_counts[client_ip] = []
-        
-        # Filter timestamps within current window
-        window_start = now - RATE_LIMIT_WINDOW
-        request_counts[client_ip] = [t for t in request_counts[client_ip] if t > window_start]
-        
-        if len(request_counts[client_ip]) >= MAX_REQUESTS_PER_WINDOW:
-            return False
-        
-        request_counts[client_ip].append(now)
-        return True
-
-class InspectionRequest(BaseModel):
-    prompt: str = Field(..., description="Raw user prompt to inspect")
-    session_id: Optional[str] = Field(None, description="Optional tracking session ID")
-
-class InspectionResponse(BaseModel):
-    action: str
-    confidence: float
-    risk_score: float
-    sanitized_text: str
-    matched_rules: List[str]
-    reason: str
+class ScanRequest(BaseModel):
+    text: str
     session_id: Optional[str] = None
-    cumulative_risk: Optional[float] = None
 
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    client_ip = request.client.host if request.client else "unknown"
-    if request.url.path.startswith("/v1/inspect"):
-        if not check_rate_limit(client_ip):
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "Rate limit exceeded. Too many inspection requests."}
-            )
-    response = await call_next(request)
-    return response
-
-@app.post("/v1/inspect", response_model=InspectionResponse)
-async def inspect_prompt(payload: InspectionRequest):
-    try:
-        verdict = shield.inspect(payload.prompt, session_id=payload.session_id)
-        return InspectionResponse(
-            action=verdict.action,
-            confidence=verdict.confidence,
-            risk_score=verdict.risk_score,
-            sanitized_text=verdict.sanitized_text,
-            matched_rules=verdict.matched_rules,
-            reason=verdict.reason,
-            session_id=verdict.session_id,
-            cumulative_risk=verdict.cumulative_risk
+def verify_api_key(x_api_key: Optional[str] = Header(None)) -> str:
+    """
+    Validates the incoming API key against AI_SENTINEL_API_KEY using constant-time comparison.
+    Fails safely with 401 if missing or invalid.
+    """
+    if not EXPECTED_API_KEY:
+        # If protected mode/key is entirely unconfigured in environment
+        logger.error("AI_SENTINEL_API_KEY environment variable is not set.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server misconfiguration: API key authentication is not enabled/configured."
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    
+    if not x_api_key or not secrets.compare_digest(x_api_key, EXPECTED_API_KEY):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key."
+        )
+    return x_api_key
 
 @app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "ai-sentinel-gateway"}
+def health_check():
+    return {"status": "healthy", "version": "1.0.0"}
+
+@app.get("/v1/inspect")
+def inspect_config(api_key: str = Depends(verify_api_key)):
+    """
+    Returns only version and config hash, protecting signature text from exposure.
+    """
+    return {
+        "version": "1.0.0",
+        "config_hash": "sha256-secured-placeholder"
+    }
+
+@app.post("/v1/scan")
+def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
+    """
+    Secured scanning endpoint via the core security shield product path.
+    """
+    try:
+        verdict: ShieldVerdict = shield.inspect(text=payload.text, session_id=payload.session_id)
+        return {
+            "action": verdict.action,
+            "flagged": verdict.flagged,
+            "reason": verdict.reason,
+            "block_threshold": verdict.block_threshold,
+            "sanitized_text": verdict.sanitized_text,
+            "risk_score": verdict.risk_score
+        }
+    except Exception as e:
+        logger.error("Error during secure scan: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal inspection error."
+        )

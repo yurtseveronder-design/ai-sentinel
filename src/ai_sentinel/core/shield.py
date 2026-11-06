@@ -1,5 +1,6 @@
 import logging
 import re
+import base64
 from datetime import datetime, timezone
 from typing import Optional, Any, Dict, List
 
@@ -7,6 +8,15 @@ from ai_sentinel.core.normalizer import InputNormalizer
 from ai_sentinel.config.loader import ConfigLoader
 
 logger = logging.getLogger(__name__)
+
+class ShieldVerdict:
+    def __init__(self, action: str, flagged: bool, reason: list, block_threshold: float, sanitized_text: str, risk_score: float):
+        self.action = action
+        self.flagged = flagged
+        self.reason = reason
+        self.block_threshold = block_threshold
+        self.sanitized_text = sanitized_text
+        self.risk_score = risk_score
 
 class SecurityShield:
     """
@@ -65,10 +75,7 @@ class SecurityShield:
         reasons = []
 
         if layer_error:
-            if self.mode == "strict":
-                is_malicious = True
-                reasons.append("Fail-closed triggered due to layer error")
-            elif self.mode == "moderate":
+            if self.mode in ("strict", "moderate"):
                 is_malicious = True
                 reasons.append("Fail-closed triggered due to layer error")
 
@@ -76,14 +83,14 @@ class SecurityShield:
             for pattern in self.action_patterns:
                 if re.search(pattern, decoded_text, re.IGNORECASE):
                     is_malicious = True
-                    reasons.append(f"Action + target threat pattern matched: {{pattern}}")
+                    reasons.append(f"Action + target threat pattern matched: {pattern}")
                     break
 
             signatures = self.config.get("threat_signatures", [])
             for sig in signatures:
                 if sig.lower() in decoded_text.lower():
                     is_malicious = True
-                    reasons.append(f"Threat signature matched: {{sig}}")
+                    reasons.append(f"Threat signature matched: {sig}")
                     break
         except Exception as pat_err:
             logger.error("Threat pattern matching error: %s", pat_err, exc_info=True)
@@ -99,7 +106,7 @@ class SecurityShield:
             "reason": reasons if reasons else ["Successfully processed prompt"]
         }
 
-    def inspect(self, text: str, session_id: Optional[str] = None, **kwargs) -> Any:
+    def inspect(self, text: str, session_id: Optional[str] = None, **kwargs) -> ShieldVerdict:
         rate_limited = False
         if hasattr(self, "rate_limiter") and self.rate_limiter and session_id:
             try:
@@ -122,14 +129,13 @@ class SecurityShield:
         sanitized = "" if flagged else text
         threshold = 0.7 if self.block_threshold <= 0.7 else self.block_threshold
 
-        # Returning the verdict object/dict matching expected interface
-        return type("ShieldVerdict", (), {
-            "action": action,
-            "flagged": flagged,
-            "reason": reasons,
-            "block_threshold": threshold,
-            "sanitized_text": sanitized,
-            "risk_score": res["risk_score"]
-        })()
+        return ShieldVerdict(
+            action=action,
+            flagged=flagged,
+            reason=reasons,
+            block_threshold=threshold,
+            sanitized_text=sanitized,
+            risk_score=res["risk_score"]
+        )
 
 BioImmuneShield = SecurityShield

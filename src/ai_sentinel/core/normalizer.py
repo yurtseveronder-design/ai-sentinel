@@ -2,11 +2,12 @@ import unicodedata
 import html
 import urllib.parse
 import re
+import base64
 
 class InputNormalizer:
     """
-    Robust input normalizer supporting NFKC normalization, zero-width character stripping,
-    confusable mapping, leetspeak translation, and entity decoding.
+    Strict input normalizer supporting NFKC normalization, zero-width character stripping,
+    confusable mapping, leetspeak translation, entity decoding, and targeted Base64 extraction.
     """
 
     CONFUSABLES = {
@@ -20,12 +21,43 @@ class InputNormalizer:
         '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's', '7': 't', '@': 'a', '$': 's'
     }
 
+    def _decode_base64_tokens(self, text: str) -> str:
+        """
+        Scans for valid Base64 tokens >= 16 characters. 
+        Decodes each in an isolated try block to prevent one bad token from stopping the scan.
+        """
+        # Matches words containing only valid Base64 characters and at least 16 chars long
+        b64_pattern = re.compile(r'\b[A-Za-z0-9+/]{16,}={0,2}\b')
+        
+        def replace_token(match):
+            token = match.group(0)
+            try:
+                # Add padding if missing to prevent padding errors
+                padded_token = token + "=" * ((4 - len(token) % 4) % 4)
+                decoded_bytes = base64.b64decode(padded_token, validate=True)
+                decoded_str = decoded_bytes.decode('utf-8')
+                
+                # If it successfully decodes to a string, append it to the original token
+                # so the shield can scan the hidden payload.
+                if decoded_str.strip():
+                    return f"{token} {decoded_str}"
+            except Exception:
+                # If decoding fails (e.g., random noise that happens to match the alphabet),
+                # just fail safely for this specific token and move on.
+                pass
+            return token
+
+        return b64_pattern.sub(replace_token, text)
+
     def normalize(self, text: str) -> str:
         if not text:
             return ""
 
+        # 0. Decode Base64 tokens inline before normalization
+        normalized = self._decode_base64_tokens(text)
+
         # 1. NFKC normalization
-        normalized = unicodedata.normalize("NFKC", text)
+        normalized = unicodedata.normalize("NFKC", normalized)
 
         # 2. Remove zero-width and invisible characters
         zero_width_chars = [

@@ -2,64 +2,60 @@ import hashlib
 import json
 import logging
 import time
+import math
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+class SessionRiskEngine:
+    """Tracks per-session risk scores with exponential time-based decay."""
+    def __init__(self, decay_lambda: float = 0.1):
+        self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.decay_lambda = decay_lambda
+
+    def update_and_get_risk(self, session_id: str, incoming_risk: float) -> float:
+        current_time = time.time()
+        if session_id not in self.sessions:
+            self.sessions[session_id] = {"risk": incoming_risk, "last_updated": current_time}
+            return incoming_risk
+
+        data = self.sessions[session_id]
+        elapsed = current_time - data["last_updated"]
+        
+        # Apply exponential risk decay based on time elapsed
+        decayed_risk = data["risk"] * math.exp(-self.decay_lambda * elapsed)
+        
+        new_cumulative_risk = min(1.0, decayed_risk + incoming_risk)
+        self.sessions[session_id] = {"risk": new_cumulative_risk, "last_updated": current_time}
+        return new_cumulative_risk
+
+
 class AuditLogger:
-    """
-    Privacy-first audit logger. Records hashes, lengths, actions, and timestamps
-    to a JSON-lines file without storing raw prompts or sensitive text.
-    """
-    def __init__(self, log_file: str = "logs/audit.log"):
-        self.log_path = Path(log_file)
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+    """Append-only JSON-lines audit logger recording metadata and SHA-256 hashes only (no raw prompts)."""
+    def __init__(self, log_file: str = "logs/audit.jsonl"):
+        self.log_file = Path(log_file)
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    def log_event(self, text: str, action: str, risk_score: float, reasons: list, session_id: Optional[str] = None):
+    def log_event(self, session_id: Optional[str], text: Optional[str], action: str, risk_score: float, reasons: list):
+        prompt_hash = "no_input"
+        prompt_len = 0
+        if text:
+            prompt_len = len(text)
+            prompt_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        record = {
+            "timestamp": time.time(),
+            "session_id": session_id or "anonymous",
+            "prompt_hash": prompt_hash,
+            "prompt_length": prompt_len,
+            "action": action,
+            "risk_score": risk_score,
+            "reasons": reasons
+        }
+
         try:
-            # Compute SHA-256 hash and length; discard raw text entirely
-            text_bytes = text.encode("utf-8") if text else b""
-            prompt_hash = hashlib.sha256(text_bytes).hexdigest()
-            prompt_len = len(text) if text else 0
-
-            event = {
-                "timestamp": time.time(),
-                "session_id": session_id or "anonymous",
-                "prompt_hash": prompt_hash,
-                "prompt_length": prompt_len,
-                "action": action,
-                "risk_score": risk_score,
-                "reasons": reasons
-            }
-
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(event) + "\n")
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
         except Exception as e:
             logger.error(f"Failed to write audit log entry: {e}")
-
-
-class SessionRiskTracker:
-    """
-    Tracks session risk scores over time with exponential decay.
-    """
-    def __init__(self, decay_rate: float = 0.1):
-        self.sessions: Dict[str, Dict[str, Any]] = {}
-        self.decay_rate = decay_rate
-
-    def update_session(self, session_id: str, current_risk: float) -> float:
-        now = time.time()
-        if session_id not in self.sessions:
-            self.sessions[session_id] = {"score": current_risk, "last_updated": now}
-            return current_risk
-
-        session = self.sessions[session_id]
-        elapsed = now - session["last_updated"]
-        
-        # Apply time-based decay
-        decayed_score = session["score"] * max(0.0, (1.0 - self.decay_rate * (elapsed / 60.0)))
-        
-        # Accumulate new risk
-        new_score = min(1.0, decayed_score + current_risk)
-        self.sessions[session_id] = {"score": new_score, "last_updated": now}
-        return new_score

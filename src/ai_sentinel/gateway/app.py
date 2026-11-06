@@ -8,16 +8,20 @@ from fastapi import FastAPI, Header, HTTPException, Depends, status
 from pydantic import BaseModel
 
 from ai_sentinel.core.shield import SecurityShield, ShieldVerdict
+from ai_sentinel.core.audit import AuditLogger, SessionRiskEngine
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="AI Sentinel API Gateway",
     version="1.0.0",
-    description="Enterprise-grade AI security gateway with authenticated inspection."
+    description="Enterprise-grade AI security gateway with authenticated inspection and cryptographic auditing."
 )
 
 shield = SecurityShield(mode="moderate")
+audit_logger = AuditLogger()
+session_engine = SessionRiskEngine()
+
 EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY", "test-api-key")
 MAX_INPUT_CHARS = 32000
 
@@ -77,7 +81,6 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             for token in tokens:
                 if b64_pattern.match(token):
                     try:
-                        # Isolated try block per token, enforcing >= 16 chars and valid alphabet
                         padded = token + '=' * (-len(token) % 4)
                         decoded_bytes = base64.b64decode(padded, validate=True)
                         decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
@@ -114,6 +117,19 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
 
         action = "BLOCK" if is_flagged else "ALLOW"
 
+        # Apply Session Risk Decay & JSON-Lines Audit Logging (Task 10 Gap)
+        cumulative_risk = max_risk
+        if payload.session_id:
+            cumulative_risk = session_engine.update_and_get_risk(payload.session_id, max_risk)
+
+        audit_logger.log_event(
+            session_id=payload.session_id,
+            text=text_to_scan,
+            action=action,
+            risk_score=cumulative_risk,
+            reasons=reasons
+        )
+
         response_data = {
             "action": action,
             "flagged": is_flagged,
@@ -121,7 +137,7 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             "reason": reasons,
             "block_threshold": verdict.block_threshold,
             "sanitized_text": "" if is_flagged else text_to_scan,
-            "risk_score": max_risk
+            "risk_score": cumulative_risk
         }
         
         if payload.chunks:

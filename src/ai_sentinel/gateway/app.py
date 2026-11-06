@@ -55,7 +55,12 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
     try:
         text_to_scan = payload.text or payload.prompt or ""
         if payload.encoded_prompt:
-            text_to_scan += " " + payload.encoded_prompt
+            try:
+                decoded_bytes = base64.b64decode(payload.encoded_prompt)
+                decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
+                text_to_scan += " " + decoded_str
+            except Exception:
+                text_to_scan += " " + payload.encoded_prompt
 
         verdict: ShieldVerdict = shield.inspect(text=text_to_scan, session_id=payload.session_id)
         

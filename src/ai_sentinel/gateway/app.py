@@ -18,6 +18,7 @@ app = FastAPI(
 
 shield = SecurityShield(mode="moderate")
 EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY", "test-api-key")
+MAX_INPUT_CHARS = 32000
 
 class ScanRequest(BaseModel):
     text: Optional[str] = None
@@ -54,6 +55,17 @@ def inspect_config(api_key: str = Depends(verify_api_key)):
 def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
     try:
         text_to_scan = payload.text or payload.prompt or ""
+        
+        # Enforce input size limit (HTTP 413 Payload Too Large)
+        total_len = len(text_to_scan)
+        if payload.chunks:
+            total_len += sum(len(c) for c in payload.chunks)
+        if total_len > MAX_INPUT_CHARS:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Input size exceeds maximum allowed limit of {MAX_INPUT_CHARS} characters."
+            )
+
         if payload.encoded_prompt:
             try:
                 decoded_bytes = base64.b64decode(payload.encoded_prompt)
@@ -71,6 +83,11 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
 
         if payload.chunks:
             for idx, chunk in enumerate(payload.chunks):
+                if len(chunk) > MAX_INPUT_CHARS:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"Chunk {idx} exceeds maximum allowed limit."
+                    )
                 chunk_verdict = shield.inspect(text=chunk, session_id=payload.session_id)
                 if chunk_verdict.flagged:
                     is_flagged = True
@@ -93,6 +110,8 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             response_data["flagged_chunks"] = flagged_chunk_indices
 
         return response_data
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logger.error("Error during scan: %s", e, exc_info=True)
         raise HTTPException(

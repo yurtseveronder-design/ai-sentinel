@@ -60,6 +60,7 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
         total_len = len(text_to_scan)
         if payload.chunks:
             total_len += sum(len(c) for c in payload.chunks)
+            
         if total_len > MAX_INPUT_CHARS:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -74,6 +75,7 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             except Exception:
                 text_to_scan += " " + payload.encoded_prompt
 
+        # Scan the main prompt first
         verdict: ShieldVerdict = shield.inspect(text=text_to_scan, session_id=payload.session_id)
         
         is_flagged = verdict.flagged
@@ -81,6 +83,7 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
         max_risk = verdict.risk_score
         flagged_chunk_indices = []
 
+        # Explicitly scan EVERY chunk independently
         if payload.chunks:
             for idx, chunk in enumerate(payload.chunks):
                 if len(chunk) > MAX_INPUT_CHARS:
@@ -106,10 +109,12 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             "sanitized_text": "" if is_flagged else text_to_scan,
             "risk_score": max_risk
         }
+        
         if payload.chunks:
             response_data["flagged_chunks"] = flagged_chunk_indices
 
         return response_data
+
     except HTTPException as he:
         raise he
     except Exception as e:

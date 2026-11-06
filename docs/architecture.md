@@ -1,36 +1,24 @@
-\# AI Sentinel Architecture
+# Architecture Overview
 
+`ai-sentinel` is organized into a modular structure separating core security logic, gateway routing, and pipeline integrations.
 
+## Core Modules
 
-AI Sentinel is a modular, high-security RAG (Retrieval-Augmented Generation) and AI testing monorepo designed for robust prompt injection defense, automated validation, and API testing.
+### 1. Core Security (`src/ai_sentinel/core/`)
+- **`shield.py`**: Houses `SecurityShield` and `ShieldVerdict`, unifying threat scanning, pattern matching, Base64 decoding inspection, and rate-limit evaluation.
+- **`normalizer.py`**: Sanitizes and standardizes incoming prompt text before evaluation.
+- **`config_loader.py`**: Manages YAML-based configuration loading for threat signatures and risk thresholds.
 
+### 2. Gateway (`src/ai_sentinel/gateway/`)
+- **`app.py`**: A FastAPI application providing core REST endpoints:
+  - `POST /v1/scan`: Evaluates payloads for prompt injection or abuse.
+  - `GET /v1/inspect`: Returns current security configuration settings.
+  - `GET /health`: Health check endpoint.
+  - `GET /metrics`: Prometheus-compatible telemetry endpoint.
+- Implements singleton startup loading to avoid redundant model/config reloading per request, alongside optional `X-API-Key` authentication.
 
+### 3. Integrations (`src/ai_sentinel/integrations/`)
+- Provides decorators and helper utilities (`decorator.py`) to easily wrap Python function calls and LLM invocation pipelines with security inspection checks.
 
-\## Workspace Layout
-
-
-
-```text
-
-ai-sentinel/
-
-├── apps/
-
-│   └── sentinel-ui/         # FastAPI backend and RAG UI application
-
-├── packages/
-
-│   ├── sentinel-core/       # Core security guardrails (BioImmuneShield) \& utilities
-
-│   ├── prompt-shield/       # Adversarial testing and mutation engine
-
-│   └── api-tester/          # Automated API security testing suite
-
-├── .github/
-
-│   └── workflows/ci.yml     # Unified CI/CD pipeline configuration
-
-└── docs/
-
-&#x20;   └── architecture.md      # System architecture overview
-
+### 4. Test Suite (`tests/`)
+- An extensive `pytest` suite validating gateway behavior, adversarial resistance, rate limiting, and normalizer edge cases.

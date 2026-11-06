@@ -1,38 +1,22 @@
 # ai-sentinel
 
-A lightweight Python security library for checking LLM prompts against common threats, rate-limiting sessions, and running basic safety evaluations.
+A modular security gateway and evaluation framework for AI-powered applications and RAG systems. This project serves as a practical security prototype designed to inspect prompts, detect injection attempts, enforce API authentication, and benchmark evaluation metrics.
 
-## Features
-- **Prompt Inspection**: Catches known injection signatures, system prompt extraction attempts, and base64 payloads using NFKC normalization.
-- **Semantic Check**: Uses basic term-frequency cosine similarity with synonym mapping to catch paraphrased attacks.
-- **Rate Limiting**: Sliding-window rate limiter per session with built-in memory cleanup.
-- **FastAPI Middleware**: Optional middleware to automatically inspect incoming web requests.
-- **CLI Utility**: Quick command-line interface to test prompts directly from your terminal.
-- **Evaluation Harness**: Runs a small test suite to measure detection rate, false positives, and latency.
+## Key Features
 
-## Installation
+- **Security Gateway (`src/ai_sentinel/gateway/`)**: A FastAPI service featuring startup initialization, API key authentication (`X-API-Key`), and Prometheus telemetry (`/metrics`).
+- **Unified Security Shield (`src/ai_sentinel/core/`)**: Scans inputs for adversarial patterns, Base64 obfuscation, and configured threat signatures.
+- **Evaluation Harness (`eval.py`)**: Benchmarks detection efficacy, false-positive rates, and p50/p95 latencies against independent test vectors.
+- **Test Coverage**: Includes a robust test suite (`tests/`) covering unit tests, integration decorators, rate limiting, and normalizers.
 
-Clone the repository and install dependencies:
+## Project Structure
 
-```bash
-git clone [https://github.com/yurtseveronder-design/ai-sentinel.git](https://github.com/yurtseveronder-design/ai-sentinel.git)
-cd ai-sentinel
-pip install -e .
-
+```text
 ai-sentinel/
-├── config/
-│   └── threat_signatures.yaml
 ├── src/
 │   └── ai_sentinel/
-│       ├── api/
-│       │   └── gateway.py
-│       └── core/
-│           └── shield.py
-├── tests/
-│   ├── test_adversarial.py
-│   ├── test_adversarial_matrix.py
-│   ├── test_api.py
-│   └── test_shield.py
-├── pyproject.toml
-├── LICENSE.md
-└── README.md
+│       ├── core/           # SecurityShield, normalizer, and config loader
+│       ├── gateway/        # FastAPI application and route endpoints
+│       └── integrations/   # Python function decorators and LLM wrappers
+├── tests/                  # Pytest test suite
+└── docs/                   # Architecture and technical documentation

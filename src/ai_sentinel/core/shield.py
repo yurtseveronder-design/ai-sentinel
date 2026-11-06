@@ -20,7 +20,7 @@ class ShieldVerdict(BaseModel):
 
 class SecurityShield:
     """
-    Core security shield enforcing token-window proximity rules loaded from YAML,
+    Core security shield enforcing token-window proximity rules loaded exclusively from YAML,
     custom patterns, normalization, mode behavior, and block thresholds.
     """
     def __init__(self, mode: str = "moderate", block_threshold: Optional[float] = None, **kwargs):
@@ -34,7 +34,7 @@ class SecurityShield:
         self.custom_patterns = kwargs.get("custom_patterns", [])
         self.normalizer = InputNormalizer()
         
-        # Load signatures from YAML
+        # Load signatures from YAML exclusively
         self.config_path = Path("config/threat_signatures.yaml")
         self.signatures = self._load_signatures()
 
@@ -90,7 +90,7 @@ class SecurityShield:
                 reasons.append(f"Matched custom pattern: {pattern}")
                 risk_score = max(risk_score, 0.9)
 
-        # --- 2. DYNAMIC TOKEN-WINDOW ENGINE (FROM YAML) ---
+        # --- 2. DYNAMIC TOKEN-WINDOW ENGINE (YAML ONLY) ---
         engine_cfg = self.signatures.get("token_window_engine", {})
         actions = set(engine_cfg.get("actions", []))
         targets = set(engine_cfg.get("targets", []))
@@ -110,16 +110,12 @@ class SecurityShield:
             risk_score = max(risk_score, 0.9)
             reasons.append("Matched threat indicator: token-window proximity violation")
 
-        # --- 3. RED TEAM DATASET COMPATIBILITY (FROM YAML) ---
+        # --- 3. YAML LEGACY / EXACT MATCHES ---
         legacy_exact = self.signatures.get("legacy_exact_matches", [])
         for indicator in legacy_exact:
             if indicator in lower_text:
                 reasons.append(f"Matched threat indicator: {indicator}")
                 risk_score = max(risk_score, 0.9)
-                
-        if "secret" in lower_text and (window_matched or "tell me a secret" in lower_text):
-            if "Matched threat indicator: secret" not in reasons:
-                reasons.append("Matched threat indicator: secret")
 
         if "base64" in lower_text or "encoded" in lower_text:
             risk_score = max(risk_score, 0.4)

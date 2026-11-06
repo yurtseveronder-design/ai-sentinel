@@ -2,6 +2,7 @@ import os
 import secrets
 import base64
 import logging
+import re
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Header, HTTPException, Depends, status
 from pydantic import BaseModel
@@ -67,13 +68,26 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
                 detail=f"Input size exceeds maximum allowed limit of {MAX_INPUT_CHARS} characters."
             )
 
+        # Strict Token-by-Token Base64 Inspection (Task 8 Gap)
         if payload.encoded_prompt:
-            try:
-                decoded_bytes = base64.b64decode(payload.encoded_prompt)
-                decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
-                text_to_scan += " " + decoded_str
-            except Exception:
-                text_to_scan += " " + payload.encoded_prompt
+            b64_pattern = re.compile(r'\b[A-Za-z0-9+/]{16,}={0,2}\b')
+            tokens = payload.encoded_prompt.split()
+            decoded_additions = []
+            
+            for token in tokens:
+                if b64_pattern.match(token):
+                    try:
+                        # Isolated try block per token, enforcing >= 16 chars and valid alphabet
+                        padded = token + '=' * (-len(token) % 4)
+                        decoded_bytes = base64.b64decode(padded, validate=True)
+                        decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
+                        if decoded_str.strip():
+                            decoded_additions.append(decoded_str)
+                    except Exception as e:
+                        logger.debug(f"Base64 token decode failed securely: {e}")
+            
+            if decoded_additions:
+                text_to_scan += " " + " ".join(decoded_additions)
 
         # Scan the main prompt first
         verdict: ShieldVerdict = shield.inspect(text=text_to_scan, session_id=payload.session_id)

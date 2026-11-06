@@ -2,22 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies if required
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 sentinel \
+    && useradd --uid 1000 --gid sentinel --create-home sentinel
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt fastapi uvicorn pydantic prometheus-client streamlit requests pytest
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY config ./config
 
-# Copy source code and test suite into container
-COPY src/ ./src/
-COPY tests/ ./tests/
-COPY app_dashboard.py ./
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
 
+USER sentinel
 EXPOSE 8000
-EXPOSE 8501
-
-# Default command runs the FastAPI production gateway via Uvicorn
-CMD ["uvicorn", "ai_sentinel.api.gateway:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "ai_sentinel.gateway.app:app", "--host", "0.0.0.0", "--port", "8000"]

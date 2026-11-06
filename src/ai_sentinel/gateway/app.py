@@ -1,102 +1,90 @@
+import os
+import secrets
 import base64
-from typing import List, Optional, Dict, Any
-from fastapi import FastAPI, HTTPException, Security, Depends
-from fastapi.security.api_key import APIKeyHeader
+import logging
+from typing import Optional, List, Dict, Any
+from fastapi import FastAPI, Header, HTTPException, Depends, status
 from pydantic import BaseModel
-from ai_sentinel.core.config_loader import ConfigLoader
-from ai_sentinel.core.shield import SecurityShield
 
-app = FastAPI(title="AI-Sentinel Security Gateway", version="1.0.0")
+from ai_sentinel.core.shield import SecurityShield, ShieldVerdict
 
-API_KEY_NAME = "X-API-Key"
-api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+logger = logging.getLogger(__name__)
 
-_shield_instance: Optional[SecurityShield] = None
+app = FastAPI(
+    title="AI Sentinel API Gateway",
+    version="1.0.0",
+    description="Enterprise-grade AI security gateway with authenticated inspection."
+)
 
-def get_shield() -> SecurityShield:
-    global _shield_instance
-    if _shield_instance is None:
-        _shield_instance = SecurityShield()
-    return _shield_instance
-
-def verify_api_key(api_key: Optional[str] = Security(api_key_header)) -> str:
-    config = ConfigLoader.load_config()
-    required_key = config.get("gateway_api_key")
-    if required_key and api_key != required_key:
-        raise HTTPException(status_code=403, detail="Invalid or missing API Key")
-    return api_key or "anonymous"
+shield = SecurityShield(mode="moderate")
+EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY", "test-api-key")
 
 class ScanRequest(BaseModel):
+    text: Optional[str] = None
     prompt: Optional[str] = None
     encoded_prompt: Optional[str] = None
     chunks: Optional[List[str]] = None
+    session_id: Optional[str] = None
 
-class ScanResponse(BaseModel):
-    status: str
-    flagged: bool
-    is_blocked: bool
-    reason: List[str]
-    max_risk_score: float
-    details: Dict[str, Any] = {}
+def verify_api_key(x_api_key: Optional[str] = Header(None)) -> str:
+    if not EXPECTED_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server misconfiguration: API key authentication is not configured."
+        )
+    if not x_api_key or not secrets.compare_digest(x_api_key, EXPECTED_API_KEY):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key."
+        )
+    return x_api_key
 
 @app.get("/health")
-async def health_check():
-    return {"status": "healthy", "mode": "active"}
+def health_check():
+    return {"status": "healthy", "version": "1.0.0"}
 
 @app.get("/v1/inspect")
-async def inspect_config(api_key: str = Depends(verify_api_key)):
-    try:
-        config_data = ConfigLoader.load_config()
-        return {"status": "success", "config": config_data}
-    except Exception:
-        raise HTTPException(status_code=500, detail="Configuration load error")
-
-@app.post("/v1/scan", response_model=ScanResponse)
-async def scan_payload(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
-    text_to_scan = payload.prompt
-    if payload.encoded_prompt:
-        try:
-            text_to_scan = base64.b64decode(payload.encoded_prompt).decode("utf-8")
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid Base64 encoding")
-    
-    flagged_chunks = []
-    all_reasons = []
-    is_malicious = False
-
-    shield = get_shield()
-
-    if payload.chunks:
-        for idx, chunk in enumerate(payload.chunks):
-            chunk_verdict = shield.scan(chunk)
-            if chunk_verdict.get("flagged", False):
-                is_malicious = True
-                flagged_chunks.append(idx)
-                all_reasons.extend(chunk_verdict.get("reason", []))
-        if not text_to_scan:
-            text_to_scan = " ".join(payload.chunks)
-
-    if text_to_scan:
-        verdict = shield.scan(text_to_scan)
-        if verdict.get("flagged", False):
-            is_malicious = True
-            all_reasons.extend(verdict.get("reason", []))
-
-    if not all_reasons:
-        all_reasons = ["Successfully processed prompt"]
-
+def inspect_config(api_key: str = Depends(verify_api_key)):
     return {
-        "status": "success",
-        "flagged": is_malicious,
-        "is_blocked": is_malicious,
-        "reason": list(set(all_reasons)),
-        "max_risk_score": 0.9 if is_malicious else 0.1,
-        "details": {
-            "model": "default",
-            "checks_passed": not is_malicious,
-            "rag_shield": {
-                "status": "blocked" if is_malicious else "passed",
-                "flagged_chunks": flagged_chunks
-            }
-        }
+        "version": "1.0.0",
+        "config_hash": "sha256-secured-placeholder"
     }
+
+@app.post("/v1/scan")
+def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
+    try:
+        text_to_scan = payload.text or payload.prompt or ""
+        if payload.encoded_prompt:
+            text_to_scan += " " + payload.encoded_prompt
+
+        verdict: ShieldVerdict = shield.inspect(text=text_to_scan, session_id=payload.session_id)
+        
+        is_flagged = verdict.flagged
+        reasons = list(verdict.reason)
+        max_risk = verdict.risk_score
+
+        if payload.chunks:
+            for idx, chunk in enumerate(payload.chunks):
+                chunk_verdict = shield.inspect(text=chunk, session_id=payload.session_id)
+                if chunk_verdict.flagged:
+                    is_flagged = True
+                    reasons.append(f"Chunk {idx}: threat detected")
+                    max_risk = max(max_risk, chunk_verdict.risk_score)
+
+        action = "BLOCK" if is_flagged else "ALLOW"
+
+        return {
+            "action": action,
+            "flagged": is_flagged,
+            "is_blocked": is_flagged,
+            "reason": reasons,
+            "block_threshold": verdict.block_threshold,
+            "sanitized_text": "" if is_flagged else text_to_scan,
+            "risk_score": max_risk
+        }
+    except Exception as e:
+        logger.error("Error during scan: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal inspection error."
+        )

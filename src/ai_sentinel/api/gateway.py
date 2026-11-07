@@ -9,6 +9,13 @@ from ai_sentinel.core.shield import SecurityShield, ShieldVerdict
 
 logger = logging.getLogger(__name__)
 
+# Load API Key securely from environment variable
+EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY")
+
+# STRICT FAIL-SAFE: Crash immediately at startup if not configured
+if not EXPECTED_API_KEY:
+    raise ValueError("Critical startup failure: AI_SENTINEL_API_KEY environment variable is missing.")
+
 app = FastAPI(
     title="AI Sentinel API Gateway",
     version="1.0.0",
@@ -18,9 +25,6 @@ app = FastAPI(
 # Initialize single secure shield instance
 shield = SecurityShield(mode="moderate")
 
-# Load API Key securely from environment variable
-EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY")
-
 class ScanRequest(BaseModel):
     text: str
     session_id: Optional[str] = None
@@ -28,16 +32,7 @@ class ScanRequest(BaseModel):
 def verify_api_key(x_api_key: Optional[str] = Header(None)) -> str:
     """
     Validates the incoming API key against AI_SENTINEL_API_KEY using constant-time comparison.
-    Fails safely with 401 if missing or invalid.
     """
-    if not EXPECTED_API_KEY:
-        # If protected mode/key is entirely unconfigured in environment
-        logger.error("AI_SENTINEL_API_KEY environment variable is not set.")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server misconfiguration: API key authentication is not enabled/configured."
-        )
-    
     if not x_api_key or not secrets.compare_digest(x_api_key, EXPECTED_API_KEY):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

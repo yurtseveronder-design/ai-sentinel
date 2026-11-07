@@ -7,12 +7,5 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-    restart: always
-
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:?Error: AI_SENTINEL_API_KEY environment variable is required}
     restart: always

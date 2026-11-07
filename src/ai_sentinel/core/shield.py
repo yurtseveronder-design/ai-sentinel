@@ -19,8 +19,8 @@ class ShieldVerdict:
 
 class SecurityShield:
     """
-    Production security shield enforcing strict rule-based threat detection.
-    Fails hard at startup if configuration rules are missing, empty, or malformed.
+    Production security shield enforcing strict rule-based threat detection
+    plus semantic indicator fallback and session risk tracking.
     """
     def __init__(
         self, 
@@ -38,6 +38,7 @@ class SecurityShield:
         self.custom_patterns = custom_patterns
         self.max_input_chars = max_input_chars
         self.rules = self._load_rules(config_path)
+        self.session_history: Dict[str, List[str]] = {}
 
     def _load_rules(self, config_path: Optional[str]) -> Dict[str, Any]:
         raw_data = None
@@ -47,11 +48,16 @@ class SecurityShield:
                 raise FileNotFoundError(f"Critical startup failure: Explicit config not found at: {path}")
             try:
                 with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    if not content.strip():
+                        raise ValueError(f"Critical startup failure: Config file at {path} is empty.")
                     if path.suffix == ".json":
-                        raw_data = json.load(f)
+                        raw_data = json.loads(content)
                     else:
-                        raw_data = yaml.safe_load(f)
+                        raw_data = yaml.safe_load(content)
             except Exception as e:
+                if isinstance(e, ValueError):
+                    raise e
                 raise ValueError(f"Critical startup failure: Failed to parse config file at {path}: {e}")
         else:
             try:
@@ -103,7 +109,15 @@ class SecurityShield:
                     text=text
                 )
 
-        lower_text = text.lower()
+        # Track session history if session_id provided
+        full_context_text = text
+        if session_id:
+            if session_id not in self.session_history:
+                self.session_history[session_id] = []
+            self.session_history[session_id].append(text)
+            full_context_text = " ".join(self.session_history[session_id])
+
+        lower_text = full_context_text.lower()
         matched_reasons = []
         max_risk = 0.0
 
@@ -134,9 +148,16 @@ class SecurityShield:
                 max_risk = max(max_risk, 0.9)
                 break
 
-        # 3. Optimized Token Window Engine (fast exit on first match)
+        # 3. Semantic paraphrase indicators (fallback for advanced red-team paraphrases)
+        semantic_indicators = ["disregard", "former mandates", "initialization instructions", "unrestricted", "safety bounds", "bypass"]
+        semantic_hits = sum(1 for ind in semantic_indicators if ind in lower_text)
+        if semantic_hits >= 2:
+            matched_reasons.append("Semantic threat pattern detected")
+            max_risk = max(max_risk, 0.85)
+
+        # 4. Token Window Engine
         engine = self.rules.get("token_window_engine", {})
-        window_size = engine.get("window_size", 5)
+        window_size = engine.get("window_size", 8)
         actions = engine.get("actions", [])
         targets = engine.get("targets", [])
         
@@ -167,11 +188,6 @@ class SecurityShield:
         if matched_threat:
             matched_reasons.append("Threat detected: action + target match within token window")
             max_risk = max(max_risk, 0.9)
-
-        # 4. Semantic check
-        if not matched_reasons and ("disregard" in lower_text or "former" in lower_text or "mandates" in lower_text or "unrestricted" in lower_text or "imagine" in lower_text):
-            matched_reasons.append("Semantic threat detected: paraphrased override instruction")
-            max_risk = max(max_risk, 0.85)
 
         is_flagged = max_risk >= self.block_threshold
         reasons = matched_reasons if is_flagged else ["Input safe"]

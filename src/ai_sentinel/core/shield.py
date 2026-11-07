@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 import yaml
+import importlib.resources
 
 from ai_sentinel.core.normalizer import InputNormalizer
 
@@ -28,6 +29,7 @@ class ShieldVerdict:
         self.text = text
         self.sanitized_text = sanitized_text or text
         self.action = "BLOCK" if flagged else "ALLOW"
+
 
 class SecurityShield:
     """
@@ -69,22 +71,15 @@ class SecurityShield:
                 raise ValueError(f"Failed to parse configuration YAML from {config_path}: {e}")
         else:
             try:
-                import importlib.resources as pkg_resources
-                from ai_sentinel import config as config_pkg
-                
-                try:
-                    yaml_content = pkg_resources.read_text(config_pkg, "threat_signatures.yaml")
-                    rules_data = yaml.safe_load(yaml_content)
-                except Exception:
-                    fallback_path = Path(__file__).resolve().parent.parent.parent.parent / "config" / "threat_signatures.yaml"
-                    if fallback_path.exists():
-                        with open(fallback_path, "r", encoding="utf-8") as f:
-                            rules_data = yaml.safe_load(f)
-                    else:
-                        raise FileNotFoundError("Bundled threat_signatures.yaml not found.")
+                # Load the YAML safely from inside the package
+                yaml_content = importlib.resources.read_text("ai_sentinel", "threat_signatures.yaml")
+                rules_data = yaml.safe_load(yaml_content)
+            except FileNotFoundError:
+                raise FileNotFoundError("Critical startup failure: Bundled threat_signatures.yaml not found in package.")
             except Exception as e:
-                raise FileNotFoundError(f"Critical startup failure: Could not load threat signatures configuration: {e}")
+                raise ValueError(f"Critical startup failure: Could not parse bundled rules: {e}")
 
+        # If the file is missing, invalid, or has no rules, raise an error at startup. Never fall back to {}.
         if not rules_data or not isinstance(rules_data, dict):
             raise ValueError("Critical startup failure: Threat signatures configuration is empty or invalid.")
 
@@ -215,5 +210,5 @@ class SecurityShield:
             text=text
         )
 
-# Compatibility alias for tests referencing BioImmuneShield
+# Compatibility alias for tests
 BioImmuneShield = SecurityShield

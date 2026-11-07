@@ -1,11 +1,12 @@
 version: '3.8'
 
 services:
-  sentinel-gateway:
+  ai-sentinel:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - PYTHONUNBUFFERED=1
-      - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:?Error: AI_SENTINEL_API_KEY environment variable is required}
-    restart: always
+      # The :? syntax enforces that the container will fail to start if the key is empty/missing
+      - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:?AI_SENTINEL_API_KEY environment variable is strictly required}
+    user: "sentinel"
+    restart: unless-stopped

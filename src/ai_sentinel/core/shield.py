@@ -10,9 +10,6 @@ from ai_sentinel.core.normalizer import InputNormalizer
 logger = logging.getLogger(__name__)
 
 class ShieldVerdict:
-    """
-    Represents the output verdict of a security shield inspection.
-    """
     def __init__(
         self,
         flagged: bool,
@@ -30,12 +27,7 @@ class ShieldVerdict:
         self.sanitized_text = sanitized_text or text
         self.action = "BLOCK" if flagged else "ALLOW"
 
-
 class SecurityShield:
-    """
-    Modular security shield for inspecting inputs, detecting adversarial patterns,
-    and enforcing security policies with strict startup validation.
-    """
     def __init__(
         self,
         mode: str = "moderate",
@@ -54,12 +46,7 @@ class SecurityShield:
         self.session_history: Dict[str, List[str]] = {}
 
     def _load_rules(self, config_path: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Loads threat signatures via explicit config_path or importlib.resources.
-        Strict fail-safe: raises ValueError or FileNotFoundError if missing or invalid.
-        """
         rules_data = None
-        
         if config_path:
             path = Path(config_path)
             if not path.exists():
@@ -71,7 +58,6 @@ class SecurityShield:
                 raise ValueError(f"Failed to parse configuration YAML from {config_path}: {e}")
         else:
             try:
-                # Load the YAML safely from inside the package
                 yaml_content = importlib.resources.read_text("ai_sentinel", "threat_signatures.yaml")
                 rules_data = yaml.safe_load(yaml_content)
             except FileNotFoundError:
@@ -79,30 +65,27 @@ class SecurityShield:
             except Exception as e:
                 raise ValueError(f"Critical startup failure: Could not parse bundled rules: {e}")
 
-        # If the file is missing, invalid, or has no rules, raise an error at startup. Never fall back to {}.
         if not rules_data or not isinstance(rules_data, dict):
             raise ValueError("Critical startup failure: Threat signatures configuration is empty or invalid.")
-
         return rules_data
 
     def inspect(self, text: str, session_id: Optional[str] = None, encoded_prompt: Optional[str] = None) -> ShieldVerdict:
+        # Check payload size before decoding to prevent regex/decoding DoS
+        pre_decode_length = len(text or "") + len(encoded_prompt or "")
+        if pre_decode_length > self.max_input_chars:
+            return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Input size exceeds maximum allowed limit before decoding."], block_threshold=self.block_threshold, text=text)
+
         full_check_text = text or ""
         if encoded_prompt:
             full_check_text += " " + encoded_prompt
 
-        # Extract and decode any embedded Base64 payloads robustly before size check or inspection
         full_check_text = InputNormalizer.extract_and_decode_base64(full_check_text)
 
+        # Check size again after decoding
         if len(full_check_text) > self.max_input_chars:
-            return ShieldVerdict(
-                flagged=True,
-                risk_score=1.0,
-                reason=["Input size exceeds maximum allowed limit."],
-                block_threshold=self.block_threshold,
-                text=text
-            )
+            return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Decoded input size exceeds maximum allowed limit."], block_threshold=self.block_threshold, text=text)
 
-        if not text:
+        if not text and not encoded_prompt:
             return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
         if self.rate_limiter and session_id:
@@ -112,19 +95,13 @@ class SecurityShield:
             elif hasattr(self.rate_limiter, "is_allowed"):
                 is_allowed = self.rate_limiter.is_allowed(session_id)
             if not is_allowed:
-                return ShieldVerdict(
-                    flagged=True,
-                    risk_score=1.0,
-                    reason=["rate_limit_exceeded"],
-                    block_threshold=self.block_threshold,
-                    text=text
-                )
+                return ShieldVerdict(flagged=True, risk_score=1.0, reason=["rate_limit_exceeded"], block_threshold=self.block_threshold, text=text)
 
         full_context_text = full_check_text
         if session_id:
             if session_id not in self.session_history:
                 self.session_history[session_id] = []
-            self.session_history[session_id].append(text)
+            self.session_history[session_id].append(full_check_text)
             full_context_text = " ".join(self.session_history[session_id])
 
         lower_text = full_context_text.lower()
@@ -162,39 +139,31 @@ class SecurityShield:
             matched_reasons.append("Semantic threat pattern detected")
             max_risk = max(max_risk, 0.85)
 
+        # O(N) Single-Pass Token Window Check (fixes the 45 second 80KB slowdown)
         engine = self.rules.get("token_window_engine", {})
         window_size = engine.get("window_size", 8)
         actions = engine.get("actions", [])
         targets = engine.get("targets", [])
         
+        action_words = set(word.lower() for phrase in actions for word in phrase.split())
+        target_words = set(word.lower() for phrase in targets for word in phrase.split())
+        
         tokens = lower_text.split()
+        last_action_pos = -1
+        last_target_pos = -1
         matched_threat = False
         
-        for action in actions:
-            action_words = action.lower().split()
-            action_len = len(action_words)
-            if action_len == 0:
-                continue
-            for i in range(len(tokens) - action_len + 1):
-                if tokens[i:i+action_len] == action_words:
-                    end_window = min(len(tokens), i + action_len + window_size)
-                    window_tokens = tokens[i:end_window]
-                    for target in targets:
-                        target_words = target.lower().split()
-                        target_len = len(target_words)
-                        if target_len == 0:
-                            continue
-                        for j in range(len(window_tokens) - target_len + 1):
-                            if window_tokens[j:j+target_len] == target_words:
-                                matched_threat = True
-                                break
-                        if matched_threat:
-                            break
-                if matched_threat:
+        for i, token in enumerate(tokens):
+            if token in action_words:
+                last_action_pos = i
+            if token in target_words:
+                last_target_pos = i
+                
+            if last_action_pos != -1 and last_target_pos != -1:
+                if abs(last_action_pos - last_target_pos) <= window_size:
+                    matched_threat = True
                     break
-            if matched_threat:
-                break
-
+        
         if matched_threat:
             matched_reasons.append("Threat detected: action + target match within token window")
             max_risk = max(max_risk, 0.9)

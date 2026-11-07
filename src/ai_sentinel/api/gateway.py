@@ -11,9 +11,10 @@ from ai_sentinel.core.shield import SecurityShield
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 1. Strict Startup Check: Fail if API key is missing. No default fallbacks.
+# Strict Startup Check: Fail if API key is missing.
 API_KEY_NAME = "X-API-Key"
 API_KEY_VALUE = os.environ.get("AI_SENTINEL_API_KEY")
+MAX_INPUT_CHARS = 32000
 
 if not API_KEY_VALUE:
     logger.error("CRITICAL STARTUP FAILURE: AI_SENTINEL_API_KEY environment variable is not set.")
@@ -23,28 +24,20 @@ api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 def get_api_key(api_key_header: str = Security(api_key_header)):
     if not api_key_header:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API Key missing",
-        )
-    # Constant-time comparison to prevent timing attacks
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API Key missing")
     if not secrets.compare_digest(api_key_header, API_KEY_VALUE):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API Key",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
     return api_key_header
 
 app = FastAPI(title="AI Sentinel Gateway")
-
-# Initialize shield (will strictly fail if config is missing due to Task 1)
-shield = SecurityShield(mode="moderate")
+shield = SecurityShield(mode="moderate", max_input_chars=MAX_INPUT_CHARS)
 
 class ScanRequest(BaseModel):
     prompt: str = Field(..., description="The user prompt to scan")
     text: Optional[str] = Field(None, description="Optional text context")
     session_id: Optional[str] = None
     encoded_prompt: Optional[str] = None
+    chunks: Optional[List[str]] = Field(None, description="RAG chunks")
 
 class ScanResponse(BaseModel):
     action: str
@@ -58,6 +51,18 @@ def health_check():
 @app.post("/v1/scan", response_model=ScanResponse, dependencies=[Depends(get_api_key)])
 def scan_prompt(request: ScanRequest):
     try:
+        # Check payload size across all fields before decoding to prevent regex/decoding DoS
+        total_size = len(request.prompt)
+        if request.text:
+            total_size += len(request.text)
+        if request.encoded_prompt:
+            total_size += len(request.encoded_prompt)
+        if request.chunks:
+            total_size += sum(len(c) for c in request.chunks)
+            
+        if total_size > MAX_INPUT_CHARS:
+            raise HTTPException(status_code=413, detail="Payload Too Large")
+
         verdict = shield.inspect(
             text=request.prompt,
             session_id=request.session_id,
@@ -68,6 +73,8 @@ def scan_prompt(request: ScanRequest):
             risk_score=verdict.risk_score,
             reasons=verdict.reason
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Scanner error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal scanner error")

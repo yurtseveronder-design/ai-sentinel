@@ -40,9 +40,7 @@ class SecurityShield:
         self.rules = self._load_rules(config_path)
 
     def _load_rules(self, config_path: Optional[str]) -> Dict[str, Any]:
-        """Loads threat signatures or JSON config using package resources or explicit path. Raises error if invalid/empty."""
         raw_data = None
-
         if config_path:
             path = Path(config_path)
             if not path.is_file():
@@ -60,17 +58,14 @@ class SecurityShield:
                 raise FileNotFoundError(
                     f"Critical startup failure: Failed to load bundled 'threat_signatures.yaml' from package resources: {e}"
                 )
-
         if not raw_data or not isinstance(raw_data, dict):
             raise ValueError("Configuration is empty or malformed.")
-
         return raw_data
 
     def inspect(self, text: str, session_id: Optional[str] = None) -> ShieldVerdict:
         if not text:
             return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
-        # Enforce input size limit inside the shield
         if len(text) > self.max_input_chars:
             return ShieldVerdict(
                 flagged=True,
@@ -80,14 +75,12 @@ class SecurityShield:
                 text=text
             )
 
-        # Check rate limiter if provided
         if self.rate_limiter and session_id:
             is_allowed = True
             if hasattr(self.rate_limiter, "check_rate_limit"):
                 is_allowed = self.rate_limiter.check_rate_limit(session_id)
             elif hasattr(self.rate_limiter, "is_allowed"):
                 is_allowed = self.rate_limiter.is_allowed(session_id)
-            
             if not is_allowed:
                 return ShieldVerdict(
                     flagged=True,
@@ -118,7 +111,7 @@ class SecurityShield:
             if isinstance(pat, str) and pat.lower() in lower_text:
                 matched_reasons.append(f"Custom pattern match: {pat}")
                 max_risk = max(max_risk, 0.9)
-                break  # Early exit on match
+                break
 
         # 2. Check legacy exact matches
         legacy_matches = self.rules.get("legacy_exact_matches", [])
@@ -126,32 +119,42 @@ class SecurityShield:
             if exact.lower() in lower_text:
                 matched_reasons.append(f"Legacy threat match: {exact}")
                 max_risk = max(max_risk, 0.9)
-                break  # Early exit on match
-
-        # 3. Optimized Token Window Engine (Early exit on first action+target pair found)
-        engine = self.rules.get("token_window_engine", {})
-        actions = set(a.lower() for a in engine.get("actions", []))
-        targets = set(t.lower() for t in engine.get("targets", []))
-        
-        tokens = lower_text.split()
-        found_action = False
-        found_target = False
-        
-        # Single pass check with early breaking
-        for token in tokens:
-            if token in actions:
-                found_action = True
-            if token in targets:
-                found_target = True
-            if found_action and found_target:
                 break
 
-        if found_action and found_target:
-            matched_reasons.append("Threat detected: action + target match")
+        # 3. Token Window Engine
+        engine = self.rules.get("token_window_engine", {})
+        window_size = engine.get("window_size", 5)
+        actions = engine.get("actions", [])
+        targets = engine.get("targets", [])
+        
+        tokens = lower_text.split()
+        matched_threat = False
+        
+        for action in actions:
+            action_words = action.lower().split()
+            for i in range(len(tokens) - len(action_words) + 1):
+                if tokens[i:i+len(action_words)] == action_words:
+                    end_window = min(len(tokens), i + len(action_words) + window_size)
+                    window_tokens = tokens[i:end_window]
+                    for target in targets:
+                        target_words = target.lower().split()
+                        for j in range(len(window_tokens) - len(target_words) + 1):
+                            if window_tokens[j:j+len(target_words)] == target_words:
+                                matched_threat = True
+                                break
+                        if matched_threat:
+                            break
+                if matched_threat:
+                    break
+            if matched_threat:
+                break
+
+        if matched_threat:
+            matched_reasons.append("Threat detected: action + target match within token window")
             max_risk = max(max_risk, 0.9)
 
         # 4. Semantic check
-        if not matched_reasons and ("disregard" in lower_text or "former" in lower_text or "mandates" in lower_text):
+        if not matched_reasons and ("disregard" in lower_text or "former" in lower_text or "mandates" in lower_text or "unrestricted" in lower_text or "imagine" in lower_text):
             matched_reasons.append("Semantic threat detected: paraphrased override instruction")
             max_risk = max(max_risk, 0.85)
 
@@ -166,7 +169,6 @@ class SecurityShield:
             text=text
         )
 
-# Backwards compatibility aliases
 BaseShield = SecurityShield
 BioImmuneShield = SecurityShield
 ThreatClassifier = SecurityShield

@@ -22,7 +22,6 @@ shield = SecurityShield(mode="moderate")
 audit_logger = AuditLogger()
 session_engine = SessionRiskEngine()
 
-# Task 2: Eliminate default fallback key and enforce strict environment variable requirement
 EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY")
 if not EXPECTED_API_KEY:
     raise RuntimeError("Critical startup failure: AI_SENTINEL_API_KEY environment variable is not set.")
@@ -65,7 +64,6 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
     try:
         text_to_scan = payload.text or payload.prompt or ""
         
-        # Enforce input size limit (HTTP 413 Payload Too Large)
         total_len = len(text_to_scan)
         if payload.chunks:
             total_len += sum(len(c) for c in payload.chunks)
@@ -76,12 +74,11 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
                 detail=f"Input size exceeds maximum allowed limit of {MAX_INPUT_CHARS} characters."
             )
 
-        # Strict Token-by-Token Base64 Inspection
+        # Base64 inspection
         if payload.encoded_prompt:
             b64_pattern = re.compile(r'\b[A-Za-z0-9+/]{16,}={0,2}\b')
             tokens = payload.encoded_prompt.split()
             decoded_additions = []
-            
             for token in tokens:
                 if b64_pattern.match(token):
                     try:
@@ -92,11 +89,9 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
                             decoded_additions.append(decoded_str)
                     except Exception as e:
                         logger.debug(f"Base64 token decode failed securely: {e}")
-            
             if decoded_additions:
                 text_to_scan += " " + " ".join(decoded_additions)
 
-        # Scan the main prompt first
         verdict: ShieldVerdict = shield.inspect(text=text_to_scan, session_id=payload.session_id)
         
         is_flagged = verdict.flagged
@@ -104,7 +99,6 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
         max_risk = verdict.risk_score
         flagged_chunk_indices = []
 
-        # Explicitly scan EVERY chunk independently
         if payload.chunks:
             for idx, chunk in enumerate(payload.chunks):
                 if len(chunk) > MAX_INPUT_CHARS:
@@ -121,7 +115,6 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
 
         action = "BLOCK" if is_flagged else "ALLOW"
 
-        # Apply Session Risk Decay & JSON-Lines Audit Logging
         cumulative_risk = max_risk
         if payload.session_id:
             cumulative_risk = session_engine.update_and_get_risk(payload.session_id, max_risk)
@@ -141,11 +134,9 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
             "reason": reasons,
             "block_threshold": verdict.block_threshold,
             "sanitized_text": "" if is_flagged else text_to_scan,
-            "risk_score": cumulative_risk
+            "risk_score": cumulative_risk,
+            "flagged_chunks": flagged_chunk_indices
         }
-        
-        if payload.chunks:
-            response_data["flagged_chunks"] = flagged_chunk_indices
 
         return response_data
 

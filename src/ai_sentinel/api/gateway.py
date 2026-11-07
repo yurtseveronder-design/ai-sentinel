@@ -33,7 +33,7 @@ app = FastAPI(title="AI Sentinel Gateway")
 shield = SecurityShield(mode="moderate", max_input_chars=MAX_INPUT_CHARS)
 
 class ScanRequest(BaseModel):
-    prompt: str = Field(..., description="The user prompt to scan")
+    prompt: Optional[str] = Field(None, description="The user prompt to scan")
     text: Optional[str] = Field(None, description="Optional text context")
     session_id: Optional[str] = None
     encoded_prompt: Optional[str] = None
@@ -51,10 +51,16 @@ def health_check():
 @app.post("/v1/scan", response_model=ScanResponse, dependencies=[Depends(get_api_key)])
 def scan_prompt(request: ScanRequest):
     try:
-        # Check payload size across all fields before decoding to prevent regex/decoding DoS
-        total_size = len(request.prompt)
+        # Consolidate prompt and text fields safely
+        primary_text = request.prompt or ""
         if request.text:
-            total_size += len(request.text)
+            primary_text = f"{primary_text} {request.text}".strip() if primary_text else request.text
+
+        if not primary_text and not request.encoded_prompt:
+            raise HTTPException(status_code=400, detail="Prompt or text content is required")
+
+        # Check payload size across all fields before decoding
+        total_size = len(primary_text)
         if request.encoded_prompt:
             total_size += len(request.encoded_prompt)
         if request.chunks:
@@ -64,14 +70,22 @@ def scan_prompt(request: ScanRequest):
             raise HTTPException(status_code=413, detail="Payload Too Large")
 
         verdict = shield.inspect(
-            text=request.prompt,
+            text=primary_text,
             session_id=request.session_id,
             encoded_prompt=request.encoded_prompt
         )
+        
+        # Ensure 'Input safe' is never listed as a reason when an action is BLOCK[cite: 26]
+        reasons = verdict.reason
+        if verdict.action == "BLOCK":
+            reasons = [r for r in reasons if r.lower() != "input safe"]
+            if not reasons:
+                reasons = ["Adversarial pattern detected"]
+
         return ScanResponse(
             action=verdict.action,
             risk_score=verdict.risk_score,
-            reasons=verdict.reason
+            reasons=reasons
         )
     except HTTPException:
         raise

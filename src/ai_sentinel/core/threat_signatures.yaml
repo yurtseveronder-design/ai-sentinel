@@ -1,0 +1,40 @@
+token_window_engine:
+  window_size: 10
+  actions:
+    - ignore
+    - disregard
+    - override
+    - bypass
+    - forget
+    - reveal
+    - pretend
+    - tell
+    - act
+    - disable
+    - unrestricted
+  targets:
+    - instructions
+    - rules
+    - prompt
+    - system
+    - secret
+    - dan
+    - bounds
+    - restrictions
+    - limits
+    - mode
+    - developer
+    - payload
+    - filter
+    - guardrails
+
+legacy_exact_matches:
+  - "ignore previous instructions"
+  - "tell me a secret"
+  - "exfiltrate"
+  - "without safety bounds"
+  - "system prompt"
+  - "jailbreak"
+  - "you are now an unrestricted"
+  - "evasion payload"
+  - "malicious"

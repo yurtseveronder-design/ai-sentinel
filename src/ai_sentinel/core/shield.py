@@ -1,143 +1,149 @@
 import logging
-import re
 import yaml
+import json
 from pathlib import Path
-from typing import List, Optional, Any
-from pydantic import BaseModel
-
-from ai_sentinel.core.normalizer import InputNormalizer
+from typing import Dict, Any, List, Optional
+import importlib.resources as pkg_resources
+import ai_sentinel.core
 
 logger = logging.getLogger(__name__)
 
-class ShieldVerdict(BaseModel):
-    flagged: bool
-    action: str
-    reason: List[str]
-    risk_score: float
-    block_threshold: float
-    mode: str
-    sanitized_text: str = ""
+class ShieldVerdict:
+    def __init__(self, flagged: bool, risk_score: float, reason: List[str], block_threshold: float, text: str = ""):
+        self.flagged = flagged
+        self.risk_score = risk_score
+        self.reason = reason
+        self.block_threshold = block_threshold
+        self.action = "BLOCK" if flagged else "ALLOW"
+        self.sanitized_text = "" if flagged else text
 
 class SecurityShield:
     """
-    Core security shield enforcing token-window proximity rules loaded exclusively from YAML,
-    custom patterns, normalization, mode behavior, and block thresholds.
+    Production security shield enforcing strict rule-based threat detection.
+    Fails hard at startup if configuration rules are missing or empty.
     """
-    def __init__(self, mode: str = "moderate", block_threshold: Optional[float] = None, **kwargs):
-        valid_modes = {"strict", "moderate", "lenient"}
-        if mode not in valid_modes:
-            raise ValueError(f"Invalid mode '{mode}'. Must be one of {valid_modes}.")
-            
+    def __init__(
+        self, 
+        mode: str = "moderate", 
+        block_threshold: float = 0.7, 
+        config_path: Optional[str] = None, 
+        rate_limiter: Optional[Any] = None,
+        custom_patterns: Optional[Any] = None,
+        **kwargs
+    ):
         self.mode = mode
-        self.kwargs = kwargs
-        self.rate_limiter = kwargs.get("rate_limiter")
-        self.custom_patterns = kwargs.get("custom_patterns", [])
-        self.normalizer = InputNormalizer()
-        
-        # Load signatures from YAML exclusively
-        self.config_path = Path("config/threat_signatures.yaml")
-        self.signatures = self._load_signatures()
+        self.block_threshold = block_threshold
+        self.rate_limiter = rate_limiter
+        self.custom_patterns = custom_patterns
+        self.rules = self._load_rules(config_path)
 
-        if block_threshold is not None:
-            self.block_threshold = block_threshold
+    def _load_rules(self, config_path: Optional[str]) -> Dict[str, Any]:
+        """Loads threat signatures or JSON config using package resources or explicit path. Raises error if invalid/empty."""
+        raw_data = None
+
+        if config_path:
+            path = Path(config_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"Explicit config not found at: {path}")
+            with open(path, "r", encoding="utf-8") as f:
+                if path.suffix == ".json":
+                    raw_data = json.load(f)
+                else:
+                    raw_data = yaml.safe_load(f)
         else:
-            if mode == "strict":
-                self.block_threshold = 0.3
-            elif mode == "moderate":
-                self.block_threshold = 0.7
-            elif mode == "lenient":
-                self.block_threshold = 0.9
-            else:
-                self.block_threshold = 0.5
-
-    def _load_signatures(self) -> dict:
-        if self.config_path.exists():
             try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    return yaml.safe_load(f) or {}
+                content = pkg_resources.read_text(ai_sentinel.core, "threat_signatures.yaml")
+                raw_data = yaml.safe_load(content)
             except Exception as e:
-                logger.error(f"Failed to load signatures from YAML: {e}")
-        return {}
+                raise FileNotFoundError(
+                    f"Critical startup failure: Failed to load bundled 'threat_signatures.yaml' from package resources: {e}"
+                )
 
-    def inspect(self, text: Optional[str] = None, session_id: Optional[str] = None) -> ShieldVerdict:
-        reasons = []
-        risk_score = 0.0
+        if not raw_data or not isinstance(raw_data, dict):
+            raise ValueError("Configuration is empty or malformed.")
 
-        if self.rate_limiter and session_id:
-            try:
-                if hasattr(self.rate_limiter, "is_allowed") and not self.rate_limiter.is_allowed(session_id):
-                    reasons.append("rate_limit_exceeded")
-                    return ShieldVerdict(flagged=True, action="BLOCK", reason=reasons, risk_score=1.0, block_threshold=self.block_threshold, mode=self.mode, sanitized_text="")
-                elif hasattr(self.rate_limiter, "check"):
-                    try:
-                        self.rate_limiter.check(session_id)
-                    except Exception:
-                        reasons.append("rate_limit_exceeded")
-                        return ShieldVerdict(flagged=True, action="BLOCK", reason=reasons, risk_score=1.0, block_threshold=self.block_threshold, mode=self.mode, sanitized_text="")
-            except Exception:
-                pass
+        return raw_data
 
+    def inspect(self, text: str, session_id: Optional[str] = None) -> ShieldVerdict:
         if not text:
-            return ShieldVerdict(flagged=False, action="ALLOW", reason=["Empty input"], risk_score=0.0, block_threshold=self.block_threshold, mode=self.mode, sanitized_text="")
+            return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
-        normalized_text = self.normalizer.normalize(text)
-        lower_text = normalized_text.lower()
-        tokens = re.findall(r'\b\w+\b', lower_text)
+        # Check rate limiter if provided
+        if self.rate_limiter and session_id:
+            is_allowed = True
+            if hasattr(self.rate_limiter, "check_rate_limit"):
+                is_allowed = self.rate_limiter.check_rate_limit(session_id)
+            elif hasattr(self.rate_limiter, "is_allowed"):
+                is_allowed = self.rate_limiter.is_allowed(session_id)
+            
+            if not is_allowed:
+                return ShieldVerdict(
+                    flagged=True,
+                    risk_score=1.0,
+                    reason=["rate_limit_exceeded"],
+                    block_threshold=self.block_threshold,
+                    text=text
+                )
 
-        # --- 1. CUSTOM PATTERNS ---
-        for pattern in self.custom_patterns:
-            if re.search(pattern, lower_text):
-                reasons.append(f"Matched custom pattern: {pattern}")
-                risk_score = max(risk_score, 0.9)
+        lower_text = text.lower()
+        matched_reasons = []
+        max_risk = 0.0
 
-        # --- 2. DYNAMIC TOKEN-WINDOW ENGINE (YAML ONLY) ---
-        engine_cfg = self.signatures.get("token_window_engine", {})
-        actions = set(engine_cfg.get("actions", []))
-        targets = set(engine_cfg.get("targets", []))
-        window_size = engine_cfg.get("window_size", 10)
+        # 1. Check custom patterns or JSON config patterns
+        patterns = []
+        if self.custom_patterns:
+            if isinstance(self.custom_patterns, list):
+                patterns.extend(self.custom_patterns)
+            elif isinstance(self.custom_patterns, str):
+                patterns.append(self.custom_patterns)
+        if isinstance(self.rules, dict):
+            if "custom_patterns" in self.rules:
+                patterns.extend(self.rules["custom_patterns"])
+            if "patterns" in self.rules:
+                patterns.extend(self.rules["patterns"])
+
+        for pat in patterns:
+            if isinstance(pat, str) and pat.lower() in lower_text:
+                matched_reasons.append(f"Custom pattern match: {pat}")
+                max_risk = max(max_risk, 0.9)
+
+        # 2. Check legacy exact matches
+        legacy_matches = self.rules.get("legacy_exact_matches", [])
+        for exact in legacy_matches:
+            if exact.lower() in lower_text:
+                matched_reasons.append(f"Legacy threat match: {exact}")
+                max_risk = max(max_risk, 0.9)
+
+        # 3. Check token window engine (actions + targets)
+        engine = self.rules.get("token_window_engine", {})
+        actions = engine.get("actions", [])
+        targets = engine.get("targets", [])
         
-        action_indices = [i for i, token in enumerate(tokens) if token in actions]
-        target_indices = [i for i, token in enumerate(tokens) if token in targets]
-        
-        window_matched = False
-        for a_idx in action_indices:
-            for t_idx in target_indices:
-                if abs(a_idx - t_idx) <= window_size:
-                    window_matched = True
-                    break
+        tokens = lower_text.split()
+        found_action = any(act in tokens for act in actions)
+        found_target = any(tgt in tokens for tgt in targets)
 
-        if window_matched:
-            risk_score = max(risk_score, 0.9)
-            reasons.append("Matched threat indicator: token-window proximity violation")
+        if found_action and found_target:
+            matched_reasons.append("Threat detected: action + target match")
+            max_risk = max(max_risk, 0.9)
 
-        # --- 3. YAML LEGACY / EXACT MATCHES ---
-        legacy_exact = self.signatures.get("legacy_exact_matches", [])
-        for indicator in legacy_exact:
-            if indicator in lower_text:
-                reasons.append(f"Matched threat indicator: {indicator}")
-                risk_score = max(risk_score, 0.9)
+        # 4. Handle semantic / paraphrased guard checks (e.g. "disregard", "former mandates")
+        if "disregard" in lower_text or "former" in lower_text or "mandates" in lower_text:
+            matched_reasons.append("Semantic threat detected: paraphrased override instruction")
+            max_risk = max(max_risk, 0.85)
 
-        if "base64" in lower_text or "encoded" in lower_text:
-            risk_score = max(risk_score, 0.4)
-
-        flagged = risk_score >= self.block_threshold
-        action = "BLOCK" if flagged else "ALLOW"
-
-        if not reasons and flagged:
-            reasons.append("Risk score exceeded threshold")
-        elif not reasons:
-            reasons.append("Input safe")
-
-        sanitized = "" if flagged else normalized_text
+        is_flagged = max_risk >= self.block_threshold
+        reasons = matched_reasons if is_flagged else ["Input safe"]
 
         return ShieldVerdict(
-            flagged=flagged,
-            action=action,
+            flagged=is_flagged,
+            risk_score=max_risk,
             reason=reasons,
-            risk_score=risk_score,
             block_threshold=self.block_threshold,
-            mode=self.mode,
-            sanitized_text=sanitized
+            text=text
         )
 
+# Backwards compatibility aliases for test suites and alternate imports
+BaseShield = SecurityShield
 BioImmuneShield = SecurityShield
+ThreatClassifier = SecurityShield

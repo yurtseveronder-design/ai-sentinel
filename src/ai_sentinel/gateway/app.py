@@ -22,7 +22,11 @@ shield = SecurityShield(mode="moderate")
 audit_logger = AuditLogger()
 session_engine = SessionRiskEngine()
 
-EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY", "test-api-key")
+# Task 2: Eliminate default fallback key and enforce strict environment variable requirement
+EXPECTED_API_KEY = os.environ.get("AI_SENTINEL_API_KEY")
+if not EXPECTED_API_KEY:
+    raise RuntimeError("Critical startup failure: AI_SENTINEL_API_KEY environment variable is not set.")
+
 MAX_INPUT_CHARS = 32000
 
 class ScanRequest(BaseModel):
@@ -72,7 +76,7 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
                 detail=f"Input size exceeds maximum allowed limit of {MAX_INPUT_CHARS} characters."
             )
 
-        # Strict Token-by-Token Base64 Inspection (Task 8 Gap)
+        # Strict Token-by-Token Base64 Inspection
         if payload.encoded_prompt:
             b64_pattern = re.compile(r'\b[A-Za-z0-9+/]{16,}={0,2}\b')
             tokens = payload.encoded_prompt.split()
@@ -117,7 +121,7 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
 
         action = "BLOCK" if is_flagged else "ALLOW"
 
-        # Apply Session Risk Decay & JSON-Lines Audit Logging (Task 10 Gap)
+        # Apply Session Risk Decay & JSON-Lines Audit Logging
         cumulative_risk = max_risk
         if payload.session_id:
             cumulative_risk = session_engine.update_and_get_risk(payload.session_id, max_risk)

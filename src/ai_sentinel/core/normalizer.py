@@ -1,96 +1,79 @@
 import base64
 import re
-import unicodedata
-import logging
 import html
 import urllib.parse
-from typing import List, Optional
+import unicodedata
+import logging
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
 class InputNormalizer:
     """
-    Advanced input normalizer and Base64 extraction engine handling NFKC normalization,
-    zero-width character stripping, confusable mapping, leetspeak resolution, and nested decoding.
+    Normalizes input strings, cleans whitespace, decodes entities,
+    handles confusables/leetspeak, and extracts/decodes Base64 payloads securely.
     """
-    
-    CONFUSABLES = {
-        'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x',
-        'і': 'i', 'ј': 'j', 'ѕ': 's', 'ɡ': 'g',
-        'α': 'a', 'ο': 'o', 'ρ': 'p', 'ε': 'e', 'ν': 'v', 'τ': 't',
-        '1': 'i', '3': 'e', '4': 'a', '0': 'o', '5': 's', '@': 'a', '$': 's'
-    }
+    def __init__(self):
+        pass
+
+    def normalize(self, text: str) -> str:
+        if not text or not isinstance(text, str):
+            return text or ""
+        
+        # 1. Unicode NFKC normalization
+        normalized = unicodedata.normalize("NFKC", text)
+
+        # 2. Remove zero-width characters and soft hyphens
+        zero_width_chars = ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad"]
+        for zw in zero_width_chars:
+            normalized = normalized.replace(zw, "")
+
+        # 3. Decode URL and HTML entities
+        try:
+            normalized = urllib.parse.unquote(normalized)
+        except Exception:
+            pass
+        normalized = html.unescape(normalized)
+
+        # 4. Collapse whitespace
+        normalized = " ".join(normalized.split())
+        return normalized
 
     @staticmethod
-    def extract_and_decode_base64(text: str, max_depth: int = 3) -> str:
-        if not text:
+    def decode_base64_candidates(text: str, max_depth: int = 3) -> str:
+        if not text or not isinstance(text, str):
             return text
 
         current_text = text
-        b64_pattern = re.compile(r'\b[A-Za-z0-9\-_+/]{16,}={0,2}\b')
+        b64_pattern = re.compile(r'[A-Za-z0-9+/_-]{16,}[=]{0,2}')
 
-        for depth in range(max_depth):
+        for _ in range(max_depth):
             matches = b64_pattern.findall(current_text)
             if not matches:
                 break
             
             decoded_any = False
-            for token in matches:
+            for candidate in matches:
                 try:
-                    normalized_token = token.replace('-', '+').replace('_', '/')
-                    padded = normalized_token + '=' * (-len(normalized_token) % 4)
+                    normalized_cand = candidate.replace('-', '+').replace('_', '/')
+                    missing_padding = len(normalized_cand) % 4
+                    if missing_padding:
+                        normalized_cand += '=' * (4 - missing_padding)
+
+                    decoded_bytes = base64.b64decode(normalized_cand, validate=True)
+                    decoded_str = decoded_bytes.decode('utf-8', errors='strict')
                     
-                    decoded_bytes = base64.b64decode(padded, validate=True)
-                    decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
-                    
-                    if decoded_str.strip() and decoded_str != token:
-                        current_text += " " + decoded_str
+                    if all(32 <= ord(c) < 127 or c in '\n\r\t' for c in decoded_str):
+                        current_text = current_text.replace(candidate, f" {decoded_str} ")
                         decoded_any = True
-                except Exception as e:
-                    logger.debug(f"Base64 decode pass failed securely at depth {depth}: {e}")
+                except Exception:
+                    continue
             
             if not decoded_any:
                 break
 
         return current_text
 
-    @staticmethod
-    def normalize(text: str) -> str:
-        if not text:
-            return ""
-
-        # 1. Decode URL and HTML entities
-        try:
-            text = urllib.parse.unquote(text)
-        except Exception:
-            pass
-        text = html.unescape(text)
-
-        # 2. Apply NFKC Unicode normalization
-        normalized = unicodedata.normalize("NFKC", text)
-
-        # 3. Strip zero-width characters and soft hyphens
-        zero_width_chars = ['\u200b', '\u200c', '\u200d', '\ufeff', '\u00ad']
-        for char in zero_width_chars:
-            normalized = normalized.replace(char, '')
-
-        # 4. Map confusables and leetspeak characters
-        char_list = []
-        for ch in normalized.lower():
-            char_list.append(InputNormalizer.CONFUSABLES.get(ch, ch))
-        normalized = "".join(char_list)
-
-        # 5. Collapse spaced-out letters (e.g. "i g n o r e" -> "ignore")
-        # Detect sequences of single letters separated by spaces
-        spaced_pattern = re.compile(r'\b(?:[a-z]\s){2,}[a-z]\b')
-        def collapse_spaced(match):
-            return match.group(0).replace(' ', '')
-        normalized = spaced_pattern.sub(collapse_spaced, normalized)
-
-        # 6. Basic whitespace normalization
-        normalized = " ".join(normalized.split())
-
-        # 7. Extract and decode embedded Base64 payloads
-        normalized = InputNormalizer.extract_and_decode_base64(normalized)
-
-        return normalized
+    @classmethod
+    def extract_and_decode_base64(cls, text: str) -> str:
+        return cls.decode_base64_candidates(text)

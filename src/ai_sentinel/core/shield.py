@@ -4,6 +4,8 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 import yaml
 
+from ai_sentinel.core.normalizer import InputNormalizer
+
 logger = logging.getLogger(__name__)
 
 class ShieldVerdict:
@@ -66,7 +68,6 @@ class SecurityShield:
             except Exception as e:
                 raise ValueError(f"Failed to parse configuration YAML from {config_path}: {e}")
         else:
-            # Load bundled configuration via importlib.resources
             try:
                 import importlib.resources as pkg_resources
                 from ai_sentinel import config as config_pkg
@@ -93,6 +94,9 @@ class SecurityShield:
         full_check_text = text or ""
         if encoded_prompt:
             full_check_text += " " + encoded_prompt
+
+        # Extract and decode any embedded Base64 payloads robustly before size check or inspection
+        full_check_text = InputNormalizer.extract_and_decode_base64(full_check_text)
 
         if len(full_check_text) > self.max_input_chars:
             return ShieldVerdict(

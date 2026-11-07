@@ -70,22 +70,21 @@ class SecurityShield:
         return rules_data
 
     def inspect(self, text: str, session_id: Optional[str] = None, encoded_prompt: Optional[str] = None) -> ShieldVerdict:
-        # Check payload size before decoding to prevent regex/decoding DoS
         pre_decode_length = len(text or "") + len(encoded_prompt or "")
         if pre_decode_length > self.max_input_chars:
             return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Input size exceeds maximum allowed limit before decoding."], block_threshold=self.block_threshold, text=text)
 
-        full_check_text = text or ""
+        raw_text = text or ""
         if encoded_prompt:
-            full_check_text += " " + encoded_prompt
+            raw_text += " " + encoded_prompt
 
-        full_check_text = InputNormalizer.extract_and_decode_base64(full_check_text)
+        # Apply full advanced normalization (NFKC, zero-width stripping, entity decoding, confusables, base64)
+        full_check_text = InputNormalizer.full_normalize(raw_text)
 
-        # Check size again after decoding
         if len(full_check_text) > self.max_input_chars:
             return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Decoded input size exceeds maximum allowed limit."], block_threshold=self.block_threshold, text=text)
 
-        if not text and not encoded_prompt:
+        if not raw_text.strip():
             return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
         if self.rate_limiter and session_id:
@@ -139,7 +138,6 @@ class SecurityShield:
             matched_reasons.append("Semantic threat pattern detected")
             max_risk = max(max_risk, 0.85)
 
-        # O(N) Single-Pass Token Window Check (fixes the 45 second 80KB slowdown)
         engine = self.rules.get("token_window_engine", {})
         window_size = engine.get("window_size", 8)
         actions = engine.get("actions", [])
@@ -179,5 +177,4 @@ class SecurityShield:
             text=text
         )
 
-# Compatibility alias for tests
 BioImmuneShield = SecurityShield

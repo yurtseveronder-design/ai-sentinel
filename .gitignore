@@ -1,19 +1,22 @@
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Python caching
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.venv/
-env/
-venv/
-ENV/
-build/
-dist/
-*.egg-info/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Logs and Audit trails
 logs/
-.DS_Store
-logs/
+*.log
 *.jsonl
-*.db
+
+# IDEs
+.idea/
+.vscode/

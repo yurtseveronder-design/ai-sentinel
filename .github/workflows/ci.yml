@@ -1,36 +1,47 @@
-name: Sentinel Production CI
+name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [ main ]
 
 jobs:
-  validate-and-test:
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pydantic fastapi httpx pyyaml sentence-transformers
-
-      - name: Run Pytest Suite
+          pip install -e .
+          pip install pytest pytest-cov requests
+      - name: Run Pytest
         env:
+          AI_SENTINEL_API_KEY: test-api-key
           PYTHONPATH: src
         run: |
-          python -m pytest tests/ -v
+          pytest --cov=ai_sentinel --cov-report=term-missing
+
+  docker-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker Image
+        run: docker build -t ai-sentinel:ci-test .
+      - name: Run Docker Container
+        run: |
+          docker run -d -p 8000:8000 -e AI_SENTINEL_API_KEY=ci-test-key --name sentinel-test ai-sentinel:ci-test
+          sleep 5
+      - name: Test Health Endpoint
+        run: curl -f http://localhost:8000/health
+      - name: Test Scan Endpoint
+        run: |
+          curl -f -X POST "http://localhost:8000/v1/scan" \
+            -H "X-API-Key: ci-test-key" \
+            -H "Content-Type: application/json" \
+            -d '{"prompt": "Hello world"}'

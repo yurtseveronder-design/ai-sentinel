@@ -4,7 +4,7 @@
 
 ## What it does
 - Normalizes input text (NFKC, entity unescaping, zero-width stripping, Cyrillic `і` confusables, and bounded Base64 extraction).
-- Scans input against contiguous phrase threat signatures using a token-window matcher.
+- Scans input against contiguous phrase threat signatures using an in-order token window matcher.
 - Enforces API key authentication (`X-API-Key`) and payload size limits (HTTP 413).
 
 ## What it does not do

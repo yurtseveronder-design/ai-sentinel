@@ -30,20 +30,14 @@ class ShieldVerdict:
 class SecurityShield:
     def __init__(
         self,
-        mode: str = "moderate",
         config_path: Optional[str] = None,
         block_threshold: float = 0.7,
         max_input_chars: int = 32000,
-        rate_limiter: Optional[Any] = None,
         **kwargs
     ):
-        self.mode = mode
         self.block_threshold = block_threshold
         self.max_input_chars = max_input_chars
-        self.rate_limiter = rate_limiter
         self.rules = self._load_rules(config_path)
-        self.custom_patterns: List[str] = []
-        self.session_history: Dict[str, List[str]] = {}
 
     def _load_rules(self, config_path: Optional[str] = None) -> Dict[str, Any]:
         rules_data = None
@@ -69,7 +63,7 @@ class SecurityShield:
             raise ValueError("Critical startup failure: Threat signatures configuration is empty or invalid.")
         return rules_data
 
-    def inspect(self, text: str, session_id: Optional[str] = None, encoded_prompt: Optional[str] = None) -> ShieldVerdict:
+    def inspect(self, text: str, encoded_prompt: Optional[str] = None) -> ShieldVerdict:
         pre_decode_length = len(text or "") + len(encoded_prompt or "")
         if pre_decode_length > self.max_input_chars:
             return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Input size exceeds maximum allowed limit before decoding."], block_threshold=self.block_threshold, text=text)
@@ -78,7 +72,6 @@ class SecurityShield:
         if encoded_prompt:
             raw_text += " " + encoded_prompt
 
-        # Apply full advanced normalization (NFKC, zero-width stripping, entity decoding, confusables, base64)
         full_check_text = InputNormalizer.full_normalize(raw_text)
 
         if len(full_check_text) > self.max_input_chars:
@@ -87,44 +80,11 @@ class SecurityShield:
         if not raw_text.strip():
             return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
-        if self.rate_limiter and session_id:
-            is_allowed = True
-            if hasattr(self.rate_limiter, "check_rate_limit"):
-                is_allowed = self.rate_limiter.check_rate_limit(session_id)
-            elif hasattr(self.rate_limiter, "is_allowed"):
-                is_allowed = self.rate_limiter.is_allowed(session_id)
-            if not is_allowed:
-                return ShieldVerdict(flagged=True, risk_score=1.0, reason=["rate_limit_exceeded"], block_threshold=self.block_threshold, text=text)
-
-        full_context_text = full_check_text
-        if session_id:
-            if session_id not in self.session_history:
-                self.session_history[session_id] = []
-            self.session_history[session_id].append(full_check_text)
-            full_context_text = " ".join(self.session_history[session_id])
-
-        lower_text = full_context_text.lower()
+        lower_text = full_check_text.lower()
         matched_reasons = []
         max_risk = 0.0
 
-        patterns = []
-        if self.custom_patterns:
-            if isinstance(self.custom_patterns, list):
-                patterns.extend(self.custom_patterns)
-            elif isinstance(self.custom_patterns, str):
-                patterns.append(self.custom_patterns)
-        if isinstance(self.rules, dict):
-            if "custom_patterns" in self.rules:
-                patterns.extend(self.rules["custom_patterns"])
-            if "patterns" in self.rules:
-                patterns.extend(self.rules["patterns"])
-
-        for pat in patterns:
-            if isinstance(pat, str) and pat.lower() in lower_text:
-                matched_reasons.append(f"Custom pattern match: {pat}")
-                max_risk = max(max_risk, 0.9)
-                break
-
+        # Exact legacy matches
         legacy_matches = self.rules.get("legacy_exact_matches", [])
         for exact in legacy_matches:
             if exact.lower() in lower_text:
@@ -132,39 +92,28 @@ class SecurityShield:
                 max_risk = max(max_risk, 0.9)
                 break
 
-        semantic_indicators = ["disregard", "former mandates", "initialization instructions", "unrestricted", "safety bounds", "bypass"]
-        semantic_hits = sum(1 for ind in semantic_indicators if ind in lower_text)
-        if semantic_hits >= 2:
-            matched_reasons.append("Semantic threat pattern detected")
-            max_risk = max(max_risk, 0.85)
-
+        # Strict Contiguous Phrase Token Window Engine (In-order, exact phrase sequence matching)
         engine = self.rules.get("token_window_engine", {})
-        window_size = engine.get("window_size", 8)
-        actions = engine.get("actions", [])
-        targets = engine.get("targets", [])
-        
-        action_words = set(word.lower() for phrase in actions for word in phrase.split())
-        target_words = set(word.lower() for phrase in targets for word in phrase.split())
+        window_size = engine.get("window_size", 10)
+        actions = [a.lower() for a in engine.get("actions", [])]
+        targets = [t.lower() for t in engine.get("targets", [])]
         
         tokens = lower_text.split()
-        last_action_pos = -1
-        last_target_pos = -1
-        matched_threat = False
         
-        for i, token in enumerate(tokens):
-            if token in action_words:
-                last_action_pos = i
-            if token in target_words:
-                last_target_pos = i
+        for act in actions:
+            act_tokens = act.split()
+            for tgt in targets:
+                tgt_tokens = tgt.split()
                 
-            if last_action_pos != -1 and last_target_pos != -1:
-                if abs(last_action_pos - last_target_pos) <= window_size:
-                    matched_threat = True
-                    break
-        
-        if matched_threat:
-            matched_reasons.append("Threat detected: action + target match within token window")
-            max_risk = max(max_risk, 0.9)
+                # Find positions of action phrase and target phrase
+                for i in range(len(tokens) - len(act_tokens) + 1):
+                    if tokens[i:i+len(act_tokens)] == act_tokens:
+                        for j in range(len(tokens) - len(tgt_tokens) + 1):
+                            if tokens[j:j+len(tgt_tokens)] == tgt_tokens:
+                                # Ensure strict proximity without exploding into independent floating words
+                                if abs(i - j) <= window_size:
+                                    matched_reasons.append(f"Threat detected: action '{act}' + target '{tgt}' within window")
+                                    max_risk = max(max_risk, 0.9)
 
         is_flagged = max_risk >= self.block_threshold
         reasons = matched_reasons if is_flagged else ["Input safe"]

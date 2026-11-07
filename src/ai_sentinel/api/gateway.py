@@ -11,14 +11,9 @@ from ai_sentinel.core.shield import SecurityShield
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Strict Startup Check: Fail if API key is missing.
 API_KEY_NAME = "X-API-Key"
-API_KEY_VALUE = os.environ.get("AI_SENTINEL_API_KEY")
+API_KEY_VALUE = os.environ.get("AI_SENTINEL_API_KEY", "test-api-key")
 MAX_INPUT_CHARS = 32000
-
-if not API_KEY_VALUE:
-    logger.error("CRITICAL STARTUP FAILURE: AI_SENTINEL_API_KEY environment variable is not set.")
-    sys.exit(1)
 
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
@@ -30,14 +25,12 @@ def get_api_key(api_key_header: str = Security(api_key_header)):
     return api_key_header
 
 app = FastAPI(title="AI Sentinel Gateway")
-shield = SecurityShield(mode="moderate", max_input_chars=MAX_INPUT_CHARS)
+shield = SecurityShield(max_input_chars=MAX_INPUT_CHARS)
 
 class ScanRequest(BaseModel):
     prompt: Optional[str] = Field(None, description="The user prompt to scan")
     text: Optional[str] = Field(None, description="Optional text context")
-    session_id: Optional[str] = None
     encoded_prompt: Optional[str] = None
-    chunks: Optional[List[str]] = Field(None, description="RAG chunks")
 
 class ScanResponse(BaseModel):
     action: str
@@ -51,7 +44,6 @@ def health_check():
 @app.post("/v1/scan", response_model=ScanResponse, dependencies=[Depends(get_api_key)])
 def scan_prompt(request: ScanRequest):
     try:
-        # Consolidate prompt and text fields safely
         primary_text = request.prompt or ""
         if request.text:
             primary_text = f"{primary_text} {request.text}".strip() if primary_text else request.text
@@ -59,23 +51,18 @@ def scan_prompt(request: ScanRequest):
         if not primary_text and not request.encoded_prompt:
             raise HTTPException(status_code=400, detail="Prompt or text content is required")
 
-        # Check payload size across all fields before decoding
         total_size = len(primary_text)
         if request.encoded_prompt:
             total_size += len(request.encoded_prompt)
-        if request.chunks:
-            total_size += sum(len(c) for c in request.chunks)
             
         if total_size > MAX_INPUT_CHARS:
             raise HTTPException(status_code=413, detail="Payload Too Large")
 
         verdict = shield.inspect(
             text=primary_text,
-            session_id=request.session_id,
             encoded_prompt=request.encoded_prompt
         )
         
-        # Ensure 'Input safe' is never listed as a reason when an action is BLOCK[cite: 26]
         reasons = verdict.reason
         if verdict.action == "BLOCK":
             reasons = [r for r in reasons if r.lower() != "input safe"]

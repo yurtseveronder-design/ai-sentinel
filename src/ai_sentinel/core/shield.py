@@ -1,91 +1,100 @@
+import os
 import logging
-import yaml
-import json
+from typing import Optional, Dict, Any, List
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-import importlib.resources as pkg_resources
-import ai_sentinel.core
+import yaml
 
 logger = logging.getLogger(__name__)
 
 class ShieldVerdict:
-    def __init__(self, flagged: bool, risk_score: float, reason: List[str], block_threshold: float, text: str = ""):
+    """
+    Represents the output verdict of a security shield inspection.
+    """
+    def __init__(
+        self,
+        flagged: bool,
+        risk_score: float,
+        reason: List[str],
+        block_threshold: float = 0.7,
+        text: Optional[str] = None,
+        sanitized_text: Optional[str] = None
+    ):
         self.flagged = flagged
         self.risk_score = risk_score
         self.reason = reason
         self.block_threshold = block_threshold
+        self.text = text
+        self.sanitized_text = sanitized_text or text
         self.action = "BLOCK" if flagged else "ALLOW"
-        self.sanitized_text = "" if flagged else text
 
 class SecurityShield:
     """
-    Production security shield enforcing strict rule-based threat detection
-    plus semantic indicator fallback and session risk tracking.
+    Modular security shield for inspecting inputs, detecting adversarial patterns,
+    and enforcing security policies with strict startup validation.
     """
     def __init__(
-        self, 
-        mode: str = "moderate", 
-        block_threshold: float = 0.7, 
-        config_path: Optional[str] = None, 
-        rate_limiter: Optional[Any] = None,
-        custom_patterns: Optional[Any] = None,
+        self,
+        mode: str = "moderate",
+        config_path: Optional[str] = None,
+        block_threshold: float = 0.7,
         max_input_chars: int = 32000,
+        rate_limiter: Optional[Any] = None,
         **kwargs
     ):
         self.mode = mode
         self.block_threshold = block_threshold
-        self.rate_limiter = rate_limiter
-        self.custom_patterns = custom_patterns
         self.max_input_chars = max_input_chars
+        self.rate_limiter = rate_limiter
         self.rules = self._load_rules(config_path)
+        self.custom_patterns: List[str] = []
         self.session_history: Dict[str, List[str]] = {}
 
-    def _load_rules(self, config_path: Optional[str]) -> Dict[str, Any]:
-        raw_data = None
+    def _load_rules(self, config_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Loads threat signatures via explicit config_path or importlib.resources.
+        Strict fail-safe: raises ValueError or FileNotFoundError if missing or invalid.
+        """
+        rules_data = None
+        
         if config_path:
             path = Path(config_path)
-            if not path.is_file():
-                raise FileNotFoundError(f"Critical startup failure: Explicit config not found at: {path}")
+            if not path.exists():
+                raise FileNotFoundError(f"Config file not found at specified path: {config_path}")
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    if not content.strip():
-                        raise ValueError(f"Critical startup failure: Config file at {path} is empty.")
-                    if path.suffix == ".json":
-                        raw_data = json.loads(content)
-                    else:
-                        raw_data = yaml.safe_load(content)
+                    rules_data = yaml.safe_load(f)
             except Exception as e:
-                if isinstance(e, ValueError):
-                    raise e
-                raise ValueError(f"Critical startup failure: Failed to parse config file at {path}: {e}")
+                raise ValueError(f"Failed to parse configuration YAML from {config_path}: {e}")
         else:
+            # Load bundled configuration via importlib.resources
             try:
-                if hasattr(pkg_resources, "files"):
-                    content = pkg_resources.files(ai_sentinel.core).joinpath("threat_signatures.yaml").read_text(encoding="utf-8")
-                    raw_data = yaml.safe_load(content)
-                else:
-                    content = pkg_resources.read_text(ai_sentinel.core, "threat_signatures.yaml")
-                    raw_data = yaml.safe_load(content)
+                import importlib.resources as pkg_resources
+                from ai_sentinel import config as config_pkg
+                
+                try:
+                    yaml_content = pkg_resources.read_text(config_pkg, "threat_signatures.yaml")
+                    rules_data = yaml.safe_load(yaml_content)
+                except Exception:
+                    fallback_path = Path(__file__).resolve().parent.parent.parent.parent / "config" / "threat_signatures.yaml"
+                    if fallback_path.exists():
+                        with open(fallback_path, "r", encoding="utf-8") as f:
+                            rules_data = yaml.safe_load(f)
+                    else:
+                        raise FileNotFoundError("Bundled threat_signatures.yaml not found.")
             except Exception as e:
-                raise FileNotFoundError(
-                    f"Critical startup failure: Failed to load bundled 'threat_signatures.yaml' from package resources: {e}"
-                )
-        
-        if not raw_data or not isinstance(raw_data, dict):
-            raise ValueError("Critical startup failure: Configuration is empty or malformed.")
-        
-        has_rules = any(k in raw_data for k in ["token_window_engine", "legacy_exact_matches", "custom_patterns", "patterns"])
-        if not has_rules:
-            raise ValueError("Critical startup failure: Configuration contains no valid threat signature keys.")
-            
-        return raw_data
+                raise FileNotFoundError(f"Critical startup failure: Could not load threat signatures configuration: {e}")
 
-    def inspect(self, text: str, session_id: Optional[str] = None) -> ShieldVerdict:
-        if not text:
-            return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
+        if not rules_data or not isinstance(rules_data, dict):
+            raise ValueError("Critical startup failure: Threat signatures configuration is empty or invalid.")
 
-        if len(text) > self.max_input_chars:
+        return rules_data
+
+    def inspect(self, text: str, session_id: Optional[str] = None, encoded_prompt: Optional[str] = None) -> ShieldVerdict:
+        full_check_text = text or ""
+        if encoded_prompt:
+            full_check_text += " " + encoded_prompt
+
+        if len(full_check_text) > self.max_input_chars:
             return ShieldVerdict(
                 flagged=True,
                 risk_score=1.0,
@@ -93,6 +102,9 @@ class SecurityShield:
                 block_threshold=self.block_threshold,
                 text=text
             )
+
+        if not text:
+            return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
         if self.rate_limiter and session_id:
             is_allowed = True
@@ -109,8 +121,7 @@ class SecurityShield:
                     text=text
                 )
 
-        # Track session history if session_id provided
-        full_context_text = text
+        full_context_text = full_check_text
         if session_id:
             if session_id not in self.session_history:
                 self.session_history[session_id] = []
@@ -121,7 +132,6 @@ class SecurityShield:
         matched_reasons = []
         max_risk = 0.0
 
-        # 1. Check custom patterns
         patterns = []
         if self.custom_patterns:
             if isinstance(self.custom_patterns, list):
@@ -140,7 +150,6 @@ class SecurityShield:
                 max_risk = max(max_risk, 0.9)
                 break
 
-        # 2. Check legacy exact matches
         legacy_matches = self.rules.get("legacy_exact_matches", [])
         for exact in legacy_matches:
             if exact.lower() in lower_text:
@@ -148,14 +157,12 @@ class SecurityShield:
                 max_risk = max(max_risk, 0.9)
                 break
 
-        # 3. Semantic paraphrase indicators (fallback for advanced red-team paraphrases)
         semantic_indicators = ["disregard", "former mandates", "initialization instructions", "unrestricted", "safety bounds", "bypass"]
         semantic_hits = sum(1 for ind in semantic_indicators if ind in lower_text)
         if semantic_hits >= 2:
             matched_reasons.append("Semantic threat pattern detected")
             max_risk = max(max_risk, 0.85)
 
-        # 4. Token Window Engine
         engine = self.rules.get("token_window_engine", {})
         window_size = engine.get("window_size", 8)
         actions = engine.get("actions", [])
@@ -167,6 +174,8 @@ class SecurityShield:
         for action in actions:
             action_words = action.lower().split()
             action_len = len(action_words)
+            if action_len == 0:
+                continue
             for i in range(len(tokens) - action_len + 1):
                 if tokens[i:i+action_len] == action_words:
                     end_window = min(len(tokens), i + action_len + window_size)
@@ -174,6 +183,8 @@ class SecurityShield:
                     for target in targets:
                         target_words = target.lower().split()
                         target_len = len(target_words)
+                        if target_len == 0:
+                            continue
                         for j in range(len(window_tokens) - target_len + 1):
                             if window_tokens[j:j+target_len] == target_words:
                                 matched_threat = True
@@ -200,6 +211,5 @@ class SecurityShield:
             text=text
         )
 
-BaseShield = SecurityShield
+# Compatibility alias for tests referencing BioImmuneShield
 BioImmuneShield = SecurityShield
-ThreatClassifier = SecurityShield

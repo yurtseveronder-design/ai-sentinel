@@ -1,79 +1,82 @@
 import base64
 import re
-import html
-import urllib.parse
-import unicodedata
 import logging
-from typing import Optional, List
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 class InputNormalizer:
     """
-    Normalizes input strings, cleans whitespace, decodes entities,
-    handles confusables/leetspeak, and extracts/decodes Base64 payloads securely.
+    Handles robust input normalization, character cleaning, and advanced 
+    nested Base64 extraction with punctuation handling.
     """
-    def __init__(self):
-        pass
-
-    def normalize(self, text: str) -> str:
-        if not text or not isinstance(text, str):
-            return text or ""
-        
-        # 1. Unicode NFKC normalization
-        normalized = unicodedata.normalize("NFKC", text)
-
-        # 2. Remove zero-width characters and soft hyphens
-        zero_width_chars = ["\u200b", "\u200c", "\u200d", "\ufeff", "\u00ad"]
-        for zw in zero_width_chars:
-            normalized = normalized.replace(zw, "")
-
-        # 3. Decode URL and HTML entities
-        try:
-            normalized = urllib.parse.unquote(normalized)
-        except Exception:
-            pass
-        normalized = html.unescape(normalized)
-
-        # 4. Collapse whitespace
-        normalized = " ".join(normalized.split())
-        return normalized
+    
+    @staticmethod
+    def normalize_whitespace(text: str) -> str:
+        """
+        Collapses excessive whitespace and strips leading/trailing spaces.
+        """
+        if not text:
+            return ""
+        return " ".join(text.split())
 
     @staticmethod
-    def decode_base64_candidates(text: str, max_depth: int = 3) -> str:
-        if not text or not isinstance(text, str):
-            return text
-
-        current_text = text
-        b64_pattern = re.compile(r'[A-Za-z0-9+/_-]{16,}[=]{0,2}')
-
-        for _ in range(max_depth):
-            matches = b64_pattern.findall(current_text)
-            if not matches:
-                break
+    def decode_single_base64(token: str) -> Optional[str]:
+        """
+        Attempts to decode a single token as standard or URL-safe Base64.
+        Returns decoded string if valid UTF-8 text, else None.
+        """
+        if not token or len(token) < 4:
+            return None
             
-            decoded_any = False
-            for candidate in matches:
-                try:
-                    normalized_cand = candidate.replace('-', '+').replace('_', '/')
-                    missing_padding = len(normalized_cand) % 4
-                    if missing_padding:
-                        normalized_cand += '=' * (4 - missing_padding)
+        # Clean potential surrounding punctuation if any leaked through
+        cleaned = token.strip("\"'()[]{},.:;!?`*")
+        if len(cleaned) < 4:
+            return None
 
-                    decoded_bytes = base64.b64decode(normalized_cand, validate=True)
-                    decoded_str = decoded_bytes.decode('utf-8', errors='strict')
+        # Try standard and URL-safe base64 decodings with padding fixes
+        for alt_token in [cleaned, cleaned + "=", cleaned + "=="]:
+            for b64_fn in [base64.b64decode, base64.urlsafe_b64decode]:
+                try:
+                    padding_needed = len(alt_token) % 4
+                    padded_token = alt_token + ("=" * ((4 - padding_needed) % 4))
+                    decoded_bytes = b64_fn(padded_token.encode("utf-8"), validate=True)
+                    decoded_str = decoded_bytes.decode("utf-8")
                     
-                    if all(32 <= ord(c) < 127 or c in '\n\r\t' for c in decoded_str):
-                        current_text = current_text.replace(candidate, f" {decoded_str} ")
-                        decoded_any = True
+                    # Ensure decoded text is printable/meaningful text
+                    if decoded_str and all(32 <= ord(c) < 127 or c in "\n\r\t" for c in decoded_str):
+                        return decoded_str
                 except Exception:
                     continue
+        return None
+
+    @classmethod
+    def extract_and_decode_base64(cls, text: str, max_depth: int = 3) -> str:
+        """
+        Searches for Base64 candidates using regex (ignoring surrounding punctuation/quotes),
+        decodes them up to max_depth levels, and returns the expanded text.
+        """
+        if not text:
+            return ""
+
+        current_text = text
+        
+        # Regex to find potential Base64 strings (alphanumeric, +, /, _, -, with padding)
+        # Minimum length of 4 characters
+        b64_pattern = re.compile(r'[A-Za-z0-9+/_-]{4,}={0,2}')
+
+        for depth in range(max_depth):
+            decoded_any = False
+            matches = b64_pattern.findall(current_text)
+            
+            for match in matches:
+                decoded = cls.decode_single_base64(match)
+                if decoded:
+                    # Replace the encoded match with its decoded form
+                    current_text = current_text.replace(match, f" {decoded} ")
+                    decoded_any = True
             
             if not decoded_any:
                 break
 
-        return current_text
-
-    @classmethod
-    def extract_and_decode_base64(cls, text: str) -> str:
-        return cls.decode_base64_candidates(text)
+        return cls.normalize_whitespace(current_text)

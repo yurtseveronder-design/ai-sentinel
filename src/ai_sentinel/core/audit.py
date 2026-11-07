@@ -1,67 +1,63 @@
 import os
 import json
-import hashlib
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Dict, Any, Optional
 
-class AuditLogger:
-    """
-    Cryptographic audit logger that records inspection events in JSON-Lines format
-    without logging raw prompts (hashing them securely).
-    """
-    def __init__(self, log_path: Optional[str] = None):
-        self.log_path = Path(log_path or os.environ.get("AI_SENTINEL_AUDIT_PATH", "logs/audit.jsonl"))
+logger = logging.getLogger(__name__)
 
-    def _ensure_log_dir(self):
+class AuditLedger:
+    """
+    Audit ledger that logs security events using SHA-256 hashes without raw prompts,
+    using a configurable output path.
+    """
+    def __init__(self, ledger_path: Optional[str] = None):
+        if ledger_path is None:
+            ledger_path = os.environ.get("AI_SENTINEL_AUDIT_PATH", "logs/audit.jsonl")
+        self.ledger_path = Path(ledger_path)
+
+    def _ensure_path(self):
         try:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
+            self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.warning("Could not create audit log directory: %s", e)
 
-    def log_event(
-        self,
-        session_id: Optional[str],
-        text: str,
-        action: str,
-        risk_score: float,
-        reasons: List[str]
-    ) -> Dict[str, Any]:
-        self._ensure_log_dir()
+    def log_event(self, event_type: str = "security_event", details: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+        self._ensure_path()
+        event_details = details or {}
+        if kwargs:
+            event_details.update(kwargs)
         
-        prompt_hash = hashlib.sha256(text.encode("utf-8")).hexdigest() if text else ""
-        
-        event = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "session_id": session_id or "anonymous",
-            "prompt_hash": prompt_hash,
-            "action": action,
-            "risk_score": risk_score,
-            "reasons": reasons
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "details": event_details
         }
-        
         try:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(event) + "\n")
-        except Exception:
-            pass
-            
-        return event
+            if self.ledger_path.parent.is_dir() or not self.ledger_path.parent.exists():
+                with open(self.ledger_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.error("Failed to write audit log entry: %s", e)
+
+# Compatibility aliases
+AuditLogger = AuditLedger
 
 class SessionRiskEngine:
     """
-    Tracks rolling risk scores per session with decay.
+    Tracks session risk scores over time.
     """
-    def __init__(self, decay_factor: float = 0.9, max_size: int = 1000):
-        self.decay_factor = decay_factor
+    def __init__(self, ttl_seconds: int = 3600, max_size: int = 10000):
+        self.ttl_seconds = ttl_seconds
         self.max_size = max_size
         self.sessions: Dict[str, float] = {}
 
-    def update_and_get_risk(self, session_id: str, current_risk: float) -> float:
-        if len(self.sessions) >= self.max_size:
-            self.sessions.pop(next(iter(self.sessions)))
-            
-        previous_risk = self.sessions.get(session_id, 0.0)
-        new_risk = max(current_risk, previous_risk * self.decay_factor + current_risk * (1 - self.decay_factor))
-        self.sessions[session_id] = new_risk
-        return new_risk
+    def update_risk(self, session_id: str, risk: float) -> float:
+        current = self.sessions.get(session_id, 0.0)
+        updated = max(current, risk)
+        self.sessions[session_id] = updated
+        return updated
+
+    def get_risk(self, session_id: str) -> float:
+        return self.sessions.get(session_id, 0.0)

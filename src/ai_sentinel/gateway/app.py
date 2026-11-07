@@ -64,7 +64,10 @@ def scan_endpoint(payload: ScanRequest, api_key: str = Depends(verify_api_key)):
     try:
         text_to_scan = payload.text or payload.prompt or ""
         
+        # Enforce strict input size validation across all input vectors before decoding/scanning
         total_len = len(text_to_scan)
+        if payload.encoded_prompt:
+            total_len += len(payload.encoded_prompt)
         if payload.chunks:
             total_len += sum(len(c) for c in payload.chunks)
             

@@ -20,7 +20,7 @@ class ShieldVerdict:
 class SecurityShield:
     """
     Production security shield enforcing strict rule-based threat detection.
-    Fails hard at startup if configuration rules are missing or empty.
+    Fails hard at startup if configuration rules are missing, empty, or malformed.
     """
     def __init__(
         self, 
@@ -44,22 +44,35 @@ class SecurityShield:
         if config_path:
             path = Path(config_path)
             if not path.is_file():
-                raise FileNotFoundError(f"Explicit config not found at: {path}")
-            with open(path, "r", encoding="utf-8") as f:
-                if path.suffix == ".json":
-                    raw_data = json.load(f)
-                else:
-                    raw_data = yaml.safe_load(f)
+                raise FileNotFoundError(f"Critical startup failure: Explicit config not found at: {path}")
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    if path.suffix == ".json":
+                        raw_data = json.load(f)
+                    else:
+                        raw_data = yaml.safe_load(f)
+            except Exception as e:
+                raise ValueError(f"Critical startup failure: Failed to parse config file at {path}: {e}")
         else:
             try:
-                content = pkg_resources.read_text(ai_sentinel.core, "threat_signatures.yaml")
-                raw_data = yaml.safe_load(content)
+                if hasattr(pkg_resources, "files"):
+                    content = pkg_resources.files(ai_sentinel.core).joinpath("threat_signatures.yaml").read_text(encoding="utf-8")
+                    raw_data = yaml.safe_load(content)
+                else:
+                    content = pkg_resources.read_text(ai_sentinel.core, "threat_signatures.yaml")
+                    raw_data = yaml.safe_load(content)
             except Exception as e:
                 raise FileNotFoundError(
                     f"Critical startup failure: Failed to load bundled 'threat_signatures.yaml' from package resources: {e}"
                 )
+        
         if not raw_data or not isinstance(raw_data, dict):
-            raise ValueError("Configuration is empty or malformed.")
+            raise ValueError("Critical startup failure: Configuration is empty or malformed.")
+        
+        has_rules = any(k in raw_data for k in ["token_window_engine", "legacy_exact_matches", "custom_patterns", "patterns"])
+        if not has_rules:
+            raise ValueError("Critical startup failure: Configuration contains no valid threat signature keys.")
+            
         return raw_data
 
     def inspect(self, text: str, session_id: Optional[str] = None) -> ShieldVerdict:
@@ -121,7 +134,7 @@ class SecurityShield:
                 max_risk = max(max_risk, 0.9)
                 break
 
-        # 3. Token Window Engine
+        # 3. Optimized Token Window Engine (fast exit on first match)
         engine = self.rules.get("token_window_engine", {})
         window_size = engine.get("window_size", 5)
         actions = engine.get("actions", [])
@@ -132,14 +145,16 @@ class SecurityShield:
         
         for action in actions:
             action_words = action.lower().split()
-            for i in range(len(tokens) - len(action_words) + 1):
-                if tokens[i:i+len(action_words)] == action_words:
-                    end_window = min(len(tokens), i + len(action_words) + window_size)
+            action_len = len(action_words)
+            for i in range(len(tokens) - action_len + 1):
+                if tokens[i:i+action_len] == action_words:
+                    end_window = min(len(tokens), i + action_len + window_size)
                     window_tokens = tokens[i:end_window]
                     for target in targets:
                         target_words = target.lower().split()
-                        for j in range(len(window_tokens) - len(target_words) + 1):
-                            if window_tokens[j:j+len(target_words)] == target_words:
+                        target_len = len(target_words)
+                        for j in range(len(window_tokens) - target_len + 1):
+                            if window_tokens[j:j+target_len] == target_words:
                                 matched_threat = True
                                 break
                         if matched_threat:

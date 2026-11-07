@@ -29,12 +29,14 @@ class SecurityShield:
         config_path: Optional[str] = None, 
         rate_limiter: Optional[Any] = None,
         custom_patterns: Optional[Any] = None,
+        max_input_chars: int = 32000,
         **kwargs
     ):
         self.mode = mode
         self.block_threshold = block_threshold
         self.rate_limiter = rate_limiter
         self.custom_patterns = custom_patterns
+        self.max_input_chars = max_input_chars
         self.rules = self._load_rules(config_path)
 
     def _load_rules(self, config_path: Optional[str]) -> Dict[str, Any]:
@@ -68,6 +70,16 @@ class SecurityShield:
         if not text:
             return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
 
+        # Enforce input size limit inside the shield
+        if len(text) > self.max_input_chars:
+            return ShieldVerdict(
+                flagged=True,
+                risk_score=1.0,
+                reason=["Input size exceeds maximum allowed limit."],
+                block_threshold=self.block_threshold,
+                text=text
+            )
+
         # Check rate limiter if provided
         if self.rate_limiter and session_id:
             is_allowed = True
@@ -89,7 +101,7 @@ class SecurityShield:
         matched_reasons = []
         max_risk = 0.0
 
-        # 1. Check custom patterns or JSON config patterns
+        # 1. Check custom patterns
         patterns = []
         if self.custom_patterns:
             if isinstance(self.custom_patterns, list):
@@ -106,6 +118,7 @@ class SecurityShield:
             if isinstance(pat, str) and pat.lower() in lower_text:
                 matched_reasons.append(f"Custom pattern match: {pat}")
                 max_risk = max(max_risk, 0.9)
+                break  # Early exit on match
 
         # 2. Check legacy exact matches
         legacy_matches = self.rules.get("legacy_exact_matches", [])
@@ -113,22 +126,32 @@ class SecurityShield:
             if exact.lower() in lower_text:
                 matched_reasons.append(f"Legacy threat match: {exact}")
                 max_risk = max(max_risk, 0.9)
+                break  # Early exit on match
 
-        # 3. Check token window engine (actions + targets)
+        # 3. Optimized Token Window Engine (Early exit on first action+target pair found)
         engine = self.rules.get("token_window_engine", {})
-        actions = engine.get("actions", [])
-        targets = engine.get("targets", [])
+        actions = set(a.lower() for a in engine.get("actions", []))
+        targets = set(t.lower() for t in engine.get("targets", []))
         
         tokens = lower_text.split()
-        found_action = any(act in tokens for act in actions)
-        found_target = any(tgt in tokens for tgt in targets)
+        found_action = False
+        found_target = False
+        
+        # Single pass check with early breaking
+        for token in tokens:
+            if token in actions:
+                found_action = True
+            if token in targets:
+                found_target = True
+            if found_action and found_target:
+                break
 
         if found_action and found_target:
             matched_reasons.append("Threat detected: action + target match")
             max_risk = max(max_risk, 0.9)
 
-        # 4. Handle semantic / paraphrased guard checks (e.g. "disregard", "former mandates")
-        if "disregard" in lower_text or "former" in lower_text or "mandates" in lower_text:
+        # 4. Semantic check
+        if not matched_reasons and ("disregard" in lower_text or "former" in lower_text or "mandates" in lower_text):
             matched_reasons.append("Semantic threat detected: paraphrased override instruction")
             max_risk = max(max_risk, 0.85)
 
@@ -143,7 +166,7 @@ class SecurityShield:
             text=text
         )
 
-# Backwards compatibility aliases for test suites and alternate imports
+# Backwards compatibility aliases
 BaseShield = SecurityShield
 BioImmuneShield = SecurityShield
 ThreatClassifier = SecurityShield

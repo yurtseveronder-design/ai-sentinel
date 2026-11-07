@@ -12,8 +12,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 API_KEY_NAME = "X-API-Key"
-API_KEY_VALUE = os.environ.get("AI_SENTINEL_API_KEY", "test-api-key")
+API_KEY_VALUE = os.environ.get("AI_SENTINEL_API_KEY")
 MAX_INPUT_CHARS = 32000
+
+if not API_KEY_VALUE:
+    logger.error("CRITICAL STARTUP FAILURE: AI_SENTINEL_API_KEY environment variable is not set.")
+    sys.exit(1)
 
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 

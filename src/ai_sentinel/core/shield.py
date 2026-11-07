@@ -92,7 +92,7 @@ class SecurityShield:
                 max_risk = max(max_risk, 0.9)
                 break
 
-        # Strict Contiguous Phrase Token Window Engine (In-order, exact phrase sequence matching)
+        # Strict In-Order Token Window Engine (action strictly precedes target within window)
         engine = self.rules.get("token_window_engine", {})
         window_size = engine.get("window_size", 10)
         actions = [a.lower() for a in engine.get("actions", [])]
@@ -105,13 +105,12 @@ class SecurityShield:
             for tgt in targets:
                 tgt_tokens = tgt.split()
                 
-                # Find positions of action phrase and target phrase
                 for i in range(len(tokens) - len(act_tokens) + 1):
                     if tokens[i:i+len(act_tokens)] == act_tokens:
                         for j in range(len(tokens) - len(tgt_tokens) + 1):
                             if tokens[j:j+len(tgt_tokens)] == tgt_tokens:
-                                # Ensure strict proximity without exploding into independent floating words
-                                if abs(i - j) <= window_size:
+                                # Strict in-order check: action must appear before target, within window
+                                if i < j and (j - i) <= window_size:
                                     matched_reasons.append(f"Threat detected: action '{act}' + target '{tgt}' within window")
                                     max_risk = max(max_risk, 0.9)
 
@@ -125,5 +124,3 @@ class SecurityShield:
             block_threshold=self.block_threshold,
             text=text
         )
-
-BioImmuneShield = SecurityShield

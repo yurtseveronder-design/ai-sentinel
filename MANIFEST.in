@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+recursive-include config *
+recursive-include rules *
+recursive-include src/ai_sentinel *.json *.yaml *.yml *.txt
+global-exclude __pycache__
+global-exclude *.py[cod]

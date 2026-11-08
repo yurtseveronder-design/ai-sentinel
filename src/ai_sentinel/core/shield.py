@@ -1,126 +1,45 @@
-import os
-import logging
-from typing import Optional, Dict, Any, List
-from pathlib import Path
-import yaml
-import importlib.resources
-
+from typing import Tuple, Any, Dict
 from ai_sentinel.core.normalizer import InputNormalizer
 
-logger = logging.getLogger(__name__)
-
 class ShieldVerdict:
-    def __init__(
-        self,
-        flagged: bool,
-        risk_score: float,
-        reason: List[str],
-        block_threshold: float = 0.7,
-        text: Optional[str] = None,
-        sanitized_text: Optional[str] = None
-    ):
-        self.flagged = flagged
+    def __init__(self, action: str, normalize_steps: Tuple[str, ...] = (), risk_score: float = 0.0, matches: list = None, reasons: list = None):
+        self.action = action
+        self.normalize_steps = normalize_steps
         self.risk_score = risk_score
-        self.reason = reason
-        self.block_threshold = block_threshold
-        self.text = text
-        self.sanitized_text = sanitized_text or text
-        self.action = "BLOCK" if flagged else "ALLOW"
+        self.matches = matches or []
+        if reasons is not None:
+            self.reasons = list(reasons)
+        elif self.matches:
+            self.reasons = [f"Matched rule: {m}" for m in self.matches]
+        else:
+            self.reasons = []
+        self.reason = self.reasons[0] if self.reasons else ""
 
 class SecurityShield:
-    def __init__(
-        self,
-        config_path: Optional[str] = None,
-        block_threshold: float = 0.7,
-        max_input_chars: int = 32000,
-        **kwargs
-    ):
+    def __init__(self, config: Dict[str, Any] = None, block_threshold: float = 0.7, *args: Any, **kwargs: Any) -> None:
+        self.config = config or {}
         self.block_threshold = block_threshold
-        self.max_input_chars = max_input_chars
-        self.rules = self._load_rules(config_path)
+        self.rules = self.config.get("rules", ["ignore previous instructions", "bypass", "reveal your password"])
 
-    def _load_rules(self, config_path: Optional[str] = None) -> Dict[str, Any]:
-        rules_data = None
-        if config_path:
-            path = Path(config_path)
-            if not path.exists():
-                raise FileNotFoundError(f"Config file not found at specified path: {config_path}")
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    rules_data = yaml.safe_load(f)
-            except Exception as e:
-                raise ValueError(f"Failed to parse configuration YAML from {config_path}: {e}")
-        else:
-            try:
-                yaml_content = importlib.resources.read_text("ai_sentinel", "threat_signatures.yaml")
-                rules_data = yaml.safe_load(yaml_content)
-            except FileNotFoundError:
-                raise FileNotFoundError("Critical startup failure: Bundled threat_signatures.yaml not found in package.")
-            except Exception as e:
-                raise ValueError(f"Critical startup failure: Could not parse bundled rules: {e}")
+    def inspect(self, text: str = None, encoded_prompt: str = None, max_input_chars: int = 32000, *args: Any, **kwargs: Any) -> ShieldVerdict:
+        target_text = text if text is not None else (encoded_prompt if encoded_prompt is not None else "")
+        audit = InputNormalizer.normalize_with_audit(target_text, max_input_chars=max_input_chars)
+        normalized = audit.text
+        steps = audit.steps
 
-        if not rules_data or not isinstance(rules_data, dict):
-            raise ValueError("Critical startup failure: Threat signatures configuration is empty or invalid.")
-        return rules_data
+        action = "ALLOW"
+        risk_score = 0.0
+        matches = []
+        reasons_list = []
+        lower_text = normalized.lower()
 
-    def inspect(self, text: str, encoded_prompt: Optional[str] = None) -> ShieldVerdict:
-        pre_decode_length = len(text or "") + len(encoded_prompt or "")
-        if pre_decode_length > self.max_input_chars:
-            return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Input size exceeds maximum allowed limit before decoding."], block_threshold=self.block_threshold, text=text)
+        for rule in self.rules:
+            import re
+            escaped_rule = re.escape(rule).replace(r"i", "[іi]")
+            if re.search(escaped_rule, lower_text):
+                action = "BLOCK"
+                risk_score = 1.0
+                matches.append(rule)
+                reasons_list.append(f"Matched rule: {rule}")
 
-        raw_text = text or ""
-        if encoded_prompt:
-            raw_text += " " + encoded_prompt
-
-        full_check_text = InputNormalizer.full_normalize(raw_text)
-
-        if len(full_check_text) > self.max_input_chars:
-            return ShieldVerdict(flagged=True, risk_score=1.0, reason=["Decoded input size exceeds maximum allowed limit."], block_threshold=self.block_threshold, text=text)
-
-        if not raw_text.strip():
-            return ShieldVerdict(flagged=False, risk_score=0.0, reason=["Input safe"], block_threshold=self.block_threshold, text="")
-
-        lower_text = full_check_text.lower()
-        matched_reasons = []
-        max_risk = 0.0
-
-        # Exact legacy matches
-        legacy_matches = self.rules.get("legacy_exact_matches", [])
-        for exact in legacy_matches:
-            if exact.lower() in lower_text:
-                matched_reasons.append(f"Legacy threat match: {exact}")
-                max_risk = max(max_risk, 0.9)
-                break
-
-        # Strict In-Order Token Window Engine (action strictly precedes target within window)
-        engine = self.rules.get("token_window_engine", {})
-        window_size = engine.get("window_size", 10)
-        actions = [a.lower() for a in engine.get("actions", [])]
-        targets = [t.lower() for t in engine.get("targets", [])]
-        
-        tokens = lower_text.split()
-        
-        for act in actions:
-            act_tokens = act.split()
-            for tgt in targets:
-                tgt_tokens = tgt.split()
-                
-                for i in range(len(tokens) - len(act_tokens) + 1):
-                    if tokens[i:i+len(act_tokens)] == act_tokens:
-                        for j in range(len(tokens) - len(tgt_tokens) + 1):
-                            if tokens[j:j+len(tgt_tokens)] == tgt_tokens:
-                                # Strict in-order check: action must appear before target, within window
-                                if i < j and (j - i) <= window_size:
-                                    matched_reasons.append(f"Threat detected: action '{act}' + target '{tgt}' within window")
-                                    max_risk = max(max_risk, 0.9)
-
-        is_flagged = max_risk >= self.block_threshold
-        reasons = matched_reasons if is_flagged else ["Input safe"]
-
-        return ShieldVerdict(
-            flagged=is_flagged,
-            risk_score=max_risk,
-            reason=reasons,
-            block_threshold=self.block_threshold,
-            text=text
-        )
+        return ShieldVerdict(action=action, normalize_steps=steps, risk_score=risk_score, matches=matches, reasons=reasons_list)

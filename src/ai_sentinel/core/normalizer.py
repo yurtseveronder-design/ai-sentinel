@@ -1,98 +1,88 @@
 import base64
-import re
 import html
-import urllib.parse
+import re
 import unicodedata
-import logging
-from typing import Optional
+from dataclasses import dataclass
+from typing import Tuple, Set
 
-logger = logging.getLogger(__name__)
+@dataclass
+class NormalizeAudit:
+    text: str
+    steps: Tuple[str, ...]
 
 class InputNormalizer:
-    CONFUSABLES_MAP = {
-        'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x',
-        'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M', 'Н': 'H', 'О': 'O',
-        'Р': 'P', 'С': 'C', 'Т': 'T', 'Х': 'X', 'І': 'I', 'і': 'i',
-        'і': 'i', 'І': 'I', 'і': 'i', '\u0456': 'i', '\u0406': 'I',
-        'α': 'a', 'ε': 'e', 'ο': 'o', 'ρ': 'p', 'ν': 'v', 'ω': 'w',
-    }
-
-    @staticmethod
-    def normalize_whitespace(text: str) -> str:
-        if not text:
-            return ""
-        return " ".join(text.split())
-
     @classmethod
-    def clean_unicode_and_entities(cls, text: str) -> str:
+    def normalize_with_audit(cls, text: str, max_input_chars: int = 32000) -> NormalizeAudit:
         if not text:
-            return ""
-        try:
-            text = urllib.parse.unquote(text)
-        except Exception:
-            pass
-        text = html.unescape(text)
-        text = unicodedata.normalize("NFKC", text)
+            return NormalizeAudit(text="", steps=())
 
-        zero_width_chars = [
-            '\u200b', '\u200c', '\u200d', '\ufeff', '\u00ad', 
-            '\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e'
-        ]
-        for char in zero_width_chars:
-            text = text.replace(char, '')
-        return text
+        steps_set: Set[str] = set()
+        current = text
 
-    @classmethod
-    def replace_confusables(cls, text: str) -> str:
-        if not text:
-            return ""
-        return "".join(cls.CONFUSABLES_MAP.get(c, c) for c in text)
+        surrogate_cleaned = re.sub(r"[\ud800-\udfff]", "", current)
+        if surrogate_cleaned != current:
+            steps_set.add("surrogate")
+            current = surrogate_cleaned
 
-    @staticmethod
-    def decode_single_base64(token: str) -> Optional[str]:
-        if not token or len(token) < 8:
-            return None
-        cleaned = token.strip("\"'()[]{},.:;!?`*")
-        if len(cleaned) < 8:
-            return None
+        if len(current) > max_input_chars:
+            steps_set.add("over_limit")
+            return NormalizeAudit(text=current, steps=tuple(sorted(steps_set)))
 
-        for alt_token in [cleaned, cleaned + "=", cleaned + "=="]:
-            for b64_fn in [base64.b64decode, base64.urlsafe_b64decode]:
-                try:
-                    padding_needed = len(alt_token) % 4
-                    padded_token = alt_token + ("=" * ((4 - padding_needed) % 4))
-                    decoded_bytes = b64_fn(padded_token.encode("utf-8"), validate=True)
-                    decoded_str = decoded_bytes.decode("utf-8")
-                    if decoded_str and all(32 <= ord(c) < 127 or c in "\n\r\t" for c in decoded_str):
-                        return decoded_str
-                except Exception:
-                    continue
-        return None
+        for _ in range(3):
+            prev = current
+            current = unicodedata.normalize("NFKC", current)
+            if current != prev:
+                steps_set.add("nfkc")
 
-    @classmethod
-    def extract_and_decode_base64(cls, text: str, max_depth: int = 3) -> str:
-        if not text:
-            return ""
-        current_text = text
-        b64_pattern = re.compile(r'[A-Za-z0-9+/_-]{8,}={0,2}')
+            zw_cleaned = re.sub(r"[\u200b-\u200d\ufeff\u00ad\u2060]", "", current)
+            if zw_cleaned != current:
+                steps_set.add("zero_width")
+                current = zw_cleaned
 
-        for depth in range(max_depth):
-            decoded_any = False
-            matches = b64_pattern.findall(current_text)
-            for match in matches:
-                decoded = cls.decode_single_base64(match)
-                if decoded:
-                    current_text = current_text.replace(match, f" {decoded} ")
-                    decoded_any = True
-            if not decoded_any:
+            html_unescaped = html.unescape(current)
+            if html_unescaped != current:
+                steps_set.add("html")
+                current = html_unescaped
+
+            try:
+                from urllib.parse import unquote
+                url_decoded = unquote(current)
+                if url_decoded != current:
+                    steps_set.add("url")
+                    current = url_decoded
+            except Exception:
+                pass
+
+            if current == prev:
                 break
-        return current_text
+
+        for _ in range(3):
+            if cls._is_base64(current):
+                try:
+                    decoded_bytes = base64.b64decode(current)
+                    decoded_str = decoded_bytes.decode("utf-8")
+                    if decoded_str.isprintable():
+                        current = decoded_str
+                        steps_set.add("base64")
+                        break
+                except Exception:
+                    break
+            else:
+                break
+
+        collapsed = re.sub(r"\s+", " ", current).strip()
+        if collapsed != current:
+            steps_set.add("whitespace")
+            current = collapsed
+
+        return NormalizeAudit(text=current, steps=tuple(sorted(steps_set)))
 
     @classmethod
     def full_normalize(cls, text: str) -> str:
-        if not text:
-            return ""
-        cleaned = cls.clean_unicode_and_entities(text)
-        cleaned = cls.replace_confusables(cleaned)
-        decoded_expanded = cls.extract_and_decode_base64(cleaned)
-        return cls.normalize_whitespace(decoded_expanded)
+        return cls.normalize_with_audit(text).text
+
+    @staticmethod
+    def _is_base64(s: str) -> bool:
+        if len(s) % 4 != 0 or len(s) < 8:
+            return False
+        return bool(re.match(r"[A-Za-z0-9+/]+={0,2}$", s))

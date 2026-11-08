@@ -9,25 +9,18 @@ description = "A modular security and evaluation platform for AI-powered RAG sys
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-]
 dependencies = [
     "fastapi>=0.100.0",
     "starlette>=0.27.0",
     "pydantic>=2.0.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "httpx>=0.24.0",
+    "httpx2",
 ]
 
 [tool.setuptools.packages.find]

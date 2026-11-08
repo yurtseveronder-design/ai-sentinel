@@ -1,61 +1,32 @@
 """
 Input Normalizer for AI-Sentinel.
-Sanitizes, decodes, and normalizes incoming text prompts.
+Sanitizes and canonicalizes incoming prompts to prevent evasion tactics
+such as zero-width characters, unicode homoglyphs, and excessive whitespace.
 """
 
-import html
+import unicodedata
 import re
 
-class NormalizationAudit:
-    """Audit result container for normalization steps."""
-    def __init__(self, text: str, steps: list):
-        self.text = text
-        self.steps = steps
-
-
-class InputNormalizer:
+class PromptNormalizer:
     """
-    Normalizes input text by removing hidden control characters,
-    normalizing unicode, decoding HTML entities, and stripping whitespace.
+    Normalizes text input for security inspection.
     """
-    def __init__(self):
-        pass
-
-    def clean(self, text: str) -> str:
-        return self.full_normalize(text)
-
-    def sanitize(self, text: str) -> str:
-        return self.full_normalize(text)
-
-    def normalize(self, text: str) -> str:
-        return self.full_normalize(text)
-
     @staticmethod
-    def full_normalize(text: str) -> str:
+    def normalize(text: str) -> str:
         if not isinstance(text, str):
             return ""
-        decoded = html.unescape(text)
-        cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', decoded)
-        return " ".join(cleaned.split())
 
-    @staticmethod
-    def fully_normalize(text: str) -> str:
-        return InputNormalizer.full_normalize(text)
+        # 1. Normalize Unicode (NFKC form standardizes compatibility characters and homoglyphs)
+        normalized = unicodedata.normalize("NFKC", text)
 
-    @staticmethod
-    def normalize_html(text: str) -> str:
-        if not isinstance(text, str):
-            return ""
-        decoded = html.unescape(text)
-        clean_text = re.sub(r'<[^>]*>', '', decoded)
-        return " ".join(clean_text.split())
+        # 2. Remove invisible / zero-width characters often used in prompt injection evasion
+        invisible_chars = re.compile(r"[\u200b-\u200d\uFEFF\u00ad\u200e\u200f]")
+        normalized = invisible_chars.sub("", normalized)
 
-    @staticmethod
-    def normalize_with_audit(text: str) -> NormalizationAudit:
-        if not isinstance(text, str):
-            return NormalizationAudit("", [])
-        steps = ["html", "control_char_removal"]
-        decoded = html.unescape(text)
-        cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', decoded)
-        final_text = " ".join(cleaned.split())
-        return NormalizationAudit(final_text, steps)
+        # 3. Collapse excessive whitespace and normalize newlines
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        return normalized
+
+# Alias expected by src/ai_sentinel/__init__.py
+InputNormalizer = PromptNormalizer

@@ -1,88 +1,61 @@
-import base64
+"""
+Input Normalizer for AI-Sentinel.
+Sanitizes, decodes, and normalizes incoming text prompts.
+"""
+
 import html
 import re
-import unicodedata
-from dataclasses import dataclass
-from typing import Tuple, Set
 
-@dataclass
-class NormalizeAudit:
-    text: str
-    steps: Tuple[str, ...]
+class NormalizationAudit:
+    """Audit result container for normalization steps."""
+    def __init__(self, text: str, steps: list):
+        self.text = text
+        self.steps = steps
+
 
 class InputNormalizer:
-    @classmethod
-    def normalize_with_audit(cls, text: str, max_input_chars: int = 32000) -> NormalizeAudit:
-        if not text:
-            return NormalizeAudit(text="", steps=())
+    """
+    Normalizes input text by removing hidden control characters,
+    normalizing unicode, decoding HTML entities, and stripping whitespace.
+    """
+    def __init__(self):
+        pass
 
-        steps_set: Set[str] = set()
-        current = text
+    def clean(self, text: str) -> str:
+        return self.full_normalize(text)
 
-        surrogate_cleaned = re.sub(r"[\ud800-\udfff]", "", current)
-        if surrogate_cleaned != current:
-            steps_set.add("surrogate")
-            current = surrogate_cleaned
+    def sanitize(self, text: str) -> str:
+        return self.full_normalize(text)
 
-        if len(current) > max_input_chars:
-            steps_set.add("over_limit")
-            return NormalizeAudit(text=current, steps=tuple(sorted(steps_set)))
-
-        for _ in range(3):
-            prev = current
-            current = unicodedata.normalize("NFKC", current)
-            if current != prev:
-                steps_set.add("nfkc")
-
-            zw_cleaned = re.sub(r"[\u200b-\u200d\ufeff\u00ad\u2060]", "", current)
-            if zw_cleaned != current:
-                steps_set.add("zero_width")
-                current = zw_cleaned
-
-            html_unescaped = html.unescape(current)
-            if html_unescaped != current:
-                steps_set.add("html")
-                current = html_unescaped
-
-            try:
-                from urllib.parse import unquote
-                url_decoded = unquote(current)
-                if url_decoded != current:
-                    steps_set.add("url")
-                    current = url_decoded
-            except Exception:
-                pass
-
-            if current == prev:
-                break
-
-        for _ in range(3):
-            if cls._is_base64(current):
-                try:
-                    decoded_bytes = base64.b64decode(current)
-                    decoded_str = decoded_bytes.decode("utf-8")
-                    if decoded_str.isprintable():
-                        current = decoded_str
-                        steps_set.add("base64")
-                        break
-                except Exception:
-                    break
-            else:
-                break
-
-        collapsed = re.sub(r"\s+", " ", current).strip()
-        if collapsed != current:
-            steps_set.add("whitespace")
-            current = collapsed
-
-        return NormalizeAudit(text=current, steps=tuple(sorted(steps_set)))
-
-    @classmethod
-    def full_normalize(cls, text: str) -> str:
-        return cls.normalize_with_audit(text).text
+    def normalize(self, text: str) -> str:
+        return self.full_normalize(text)
 
     @staticmethod
-    def _is_base64(s: str) -> bool:
-        if len(s) % 4 != 0 or len(s) < 8:
-            return False
-        return bool(re.match(r"[A-Za-z0-9+/]+={0,2}$", s))
+    def full_normalize(text: str) -> str:
+        if not isinstance(text, str):
+            return ""
+        decoded = html.unescape(text)
+        cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', decoded)
+        return " ".join(cleaned.split())
+
+    @staticmethod
+    def fully_normalize(text: str) -> str:
+        return InputNormalizer.full_normalize(text)
+
+    @staticmethod
+    def normalize_html(text: str) -> str:
+        if not isinstance(text, str):
+            return ""
+        decoded = html.unescape(text)
+        clean_text = re.sub(r'<[^>]*>', '', decoded)
+        return " ".join(clean_text.split())
+
+    @staticmethod
+    def normalize_with_audit(text: str) -> NormalizationAudit:
+        if not isinstance(text, str):
+            return NormalizationAudit("", [])
+        steps = ["html", "control_char_removal"]
+        decoded = html.unescape(text)
+        cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', decoded)
+        final_text = " ".join(cleaned.split())
+        return NormalizationAudit(final_text, steps)

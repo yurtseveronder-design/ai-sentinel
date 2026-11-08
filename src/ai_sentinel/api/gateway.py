@@ -1,6 +1,7 @@
 """
 FastAPI API Gateway for AI Sentinel.
-Provides secure routing, rate limiting, audit logging, and payload inspection.
+Production-grade enterprise variant featuring rate limiting, payload size constraints,
+and structured audit ledger integration.
 """
 
 import os
@@ -9,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Optional
 from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ai_sentinel.core.shield import SecurityShield
@@ -20,13 +22,19 @@ if not API_KEY:
 
 app = FastAPI(
     title="AI Sentinel API Gateway",
-    description="Modular security and evaluation gateway for RAG pipelines.",
-    version="1.0.0",
+    description="Production-grade secure routing and evaluation gateway for RAG pipelines.",
+    version="1.1.0",
 )
 
 # Initialize Security Shield with fail-closed configuration
 BLOCK_THRESHOLD = float(os.getenv("AI_SENTINEL_BLOCK_THRESHOLD", "0.7"))
 shield = SecurityShield(block_threshold=BLOCK_THRESHOLD)
+
+# Traffic Control & Cost Protection Constants
+MAX_PAYLOAD_SIZE_BYTES = 16 * 1024  # 16 KB limit to prevent resource exhaustion
+RATE_LIMIT_MAX_REQUESTS = 50        # Max requests per window
+RATE_LIMIT_WINDOW_SECONDS = 60      # Window size in seconds
+_request_counts: Dict[str, list] = {}
 
 
 class ScanRequest(BaseModel):
@@ -49,6 +57,37 @@ def _log_audit_event(client_ip: str, prompt: str, action: str, risk_score: float
       f.write(json.dumps(audit_entry) + "\n")
   except Exception:
     pass
+
+
+@app.middleware("http")
+async def enterprise_gateway_middleware(request: Request, call_next):
+  """Bundled middleware for Payload Size Protection and Sliding-Window Rate Limiting."""
+  client_ip = request.client.host if request.client else "unknown"
+
+  # 1. Payload Size Control (Cost & Resource Protection)
+  content_length = request.headers.get("content-length")
+  if content_length and int(content_length) > MAX_PAYLOAD_SIZE_BYTES:
+    return JSONResponse(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        content={"detail": "Payload size exceeds maximum allowed limit (16KB)."}
+    )
+
+  # 2. Sliding-Window Rate Limiting (Traffic Control)
+  now = time.time()
+  timestamps = _request_counts.get(client_ip, [])
+  timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW_SECONDS]
+
+  if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"detail": "Rate limit exceeded. Please try again later."}
+    )
+
+  timestamps.append(now)
+  _request_counts[client_ip] = timestamps
+
+  response = await call_next(request)
+  return response
 
 
 @app.get("/health")

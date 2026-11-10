@@ -4,9 +4,13 @@ Version: 1.2.0
 Summary: Enterprise-grade secure routing and evaluation gateway for AI and RAG pipelines.
 License: MIT
 Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.9
+Classifier: Typing :: Typed
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: fastapi>=0.100.0
@@ -15,6 +19,9 @@ Requires-Dist: uvicorn>=0.22.0
 Requires-Dist: pydantic>=2.0.0
 Requires-Dist: PyYAML>=6.0
 Requires-Dist: requests>=2.28.0
+Requires-Dist: typing-extensions>=4.9.0
+Provides-Extra: test
+Requires-Dist: pytest>=7.0.0; extra == "test"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
@@ -22,25 +29,12 @@ Requires-Dist: httpx2; extra == "dev"
 Requires-Dist: deepeval>=0.20.0; extra == "dev"
 Dynamic: license-file
 
-# AI Sentinel
+# AI-Sentinel
 
-> **Status:** Archived demonstration project – frozen as of November 2026.
+Modular security gateway, prompt-injection defense, and evaluation harness for LLM applications in Python.
 
-AI Sentinel is a modular security and evaluation platform designed for AI-powered RAG (Retrieval-Augmented Generation) systems. It provides lightweight, rule-based prompt injection detection, input sanitization, and structured risk scoring wrapped in a clean FastAPI service.
-
-## Architecture & Modular Layering
-
-AI Sentinel follows strict, deliberate separation of concerns:
-* **InputNormalizer (`src/ai_sentinel/core/normalizer.py`)**: Pure, dependency-free sanitization core handling decoding, normalization, and control-character stripping.
-* **SecurityShield (`src/ai_sentinel/core/shield.py`)**: Threat evaluation engine sitting on top of the normalizer, executing pattern matching and risk scoring against a configurable `block_threshold`.
-* **API Gateway (`src/ai_sentinel/api/gateway.py`)**: Thin FastAPI shell handling transport, API key header validation, and payload routing.
-
-## What It Does / Does Not Do
-
-* **What it does:** Provides deterministic, rule-based detection against known prompt injection vectors, homoglyph bypasses, and credential exfiltration attempts with fail-closed startup validation.
-* **What it does not do:** It is not a heavy ML-based classifier; it intentionally avoids complex deep-learning overhead in favor of fast, transparent, and auditable regex and rule-based heuristics.
-
-## Getting Started & Local Development
-
-### Running Tests
-Ensure your API key environment variable is set, then execute the pytest test suite:
+## Features
+- **Heuristic Scorer**: Advanced anomaly weighting and lexical threat detection.
+- **Simple Rate Limiter**: In-memory sliding-window request throttling per client identifier.
+- **Audit Logger**: Structured JSON telemetry for security inspection events.
+- **Normalizer & Shield**: Input sanitization and prompt guardrails.

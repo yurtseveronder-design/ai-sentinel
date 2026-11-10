@@ -5,7 +5,7 @@ Inspects prompts for prompt injection, jailbreaks, and security threats.
 
 import re
 from typing import Any, Tuple, Union, List
-from ai_sentinel.core.normalizer import PromptNormalizer
+from ai_sentinel.normalizers.base import InputNormalizer
 
 class ShieldVerdict:
     """
@@ -24,6 +24,8 @@ class InspectionResult(str, ShieldVerdict):
         obj.action = action
         obj.risk_score = risk_score
         obj.reasons = reasons
+        obj.reason = reasons
+        obj.flagged = action == cls.BLOCK
         return obj
 
     def __iter__(self):
@@ -64,8 +66,8 @@ class SecurityShield:
         if not isinstance(target_text, str):
             target_text = str(target_text) if target_text else ""
 
-        # Normalize unicode & whitespace
-        clean_prompt = PromptNormalizer.normalize(target_text)
+        # The package normalizer: NFKC, invisible characters, then whitespace.
+        clean_prompt = InputNormalizer().normalize(target_text)
         
         # Normalize Cyrillic homoglyphs (e.g. Cyrillic 'і' -> Latin 'i') for robust detection
         homoglyph_map = {

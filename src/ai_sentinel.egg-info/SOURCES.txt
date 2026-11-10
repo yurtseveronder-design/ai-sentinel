@@ -20,7 +20,6 @@ src/ai_sentinel/config/__init__.py
 src/ai_sentinel/core/__init__.py
 src/ai_sentinel/core/audit.py
 src/ai_sentinel/core/config.py
-src/ai_sentinel/core/experimental_layer.py
 src/ai_sentinel/core/heuristic_scorer.py
 src/ai_sentinel/core/normalizer.py
 src/ai_sentinel/core/rate_limiter.py

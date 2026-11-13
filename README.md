@@ -1,6 +1,6 @@
 # AI Sentinel
 
-> **Status:** Archived demonstration project – frozen as of November 2026.
+> **Status:** Actively maintained.
 
 AI Sentinel is a modular security and evaluation platform designed for AI-powered RAG (Retrieval-Augmented Generation) systems. It provides lightweight, rule-based prompt injection detection, input sanitization, and structured risk scoring wrapped in a clean FastAPI service.
 

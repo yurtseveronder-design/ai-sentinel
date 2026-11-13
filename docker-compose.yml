@@ -1,12 +1,26 @@
-version: '3.8'
-
+# AI Sentinel core stack: detection gateway + semantic layer.
+# Usage:  AI_SENTINEL_API_KEY=... SEMANTIC_API_KEY=... docker compose up --build
 services:
+  semantic:
+    build: https://github.com/yurtseveronder-design/sentinel-semantic.git#main
+    environment:
+      - SEMANTIC_API_KEY=${SEMANTIC_API_KEY:?SEMANTIC_API_KEY is required}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8100/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
   ai-sentinel:
     build: .
     ports:
       - "8000:8000"
     environment:
-      # The :? syntax enforces that the container will fail to start if the key is empty/missing
-      - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:?AI_SENTINEL_API_KEY environment variable is strictly required}
-    user: "sentinel"
+      # The :? syntax makes compose refuse to start when the key is missing
+      - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:?AI_SENTINEL_API_KEY is required}
+      - SENTINEL_SEMANTIC_URL=http://semantic:8100
+      - SENTINEL_SEMANTIC_API_KEY=${SEMANTIC_API_KEY}
+    depends_on:
+      semantic:
+        condition: service_healthy
     restart: unless-stopped

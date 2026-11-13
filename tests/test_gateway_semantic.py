@@ -7,7 +7,11 @@ from fastapi.testclient import TestClient
 from ai_sentinel.api import gateway
 
 client = TestClient(gateway.app)
-HEADERS = {"X-API-Key": os.environ["AI_SENTINEL_API_KEY"]}
+
+
+def _headers():
+    # Read at call time: other test modules may reload the gateway with a different key.
+    return {"X-API-Key": gateway.API_KEY}
 
 
 def _analysis(profile, intent="general_chat"):
@@ -21,14 +25,14 @@ def _analysis(profile, intent="general_chat"):
 
 def test_no_semantic_field_when_layer_disabled(monkeypatch):
     monkeypatch.delenv("SENTINEL_SEMANTIC_URL", raising=False)
-    data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=HEADERS).json()
+    data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers()).json()
     assert "semantic" not in data
 
 
 def test_semantic_summary_is_attached(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
     monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt: _analysis("standard"))
-    data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=HEADERS).json()
+    data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers()).json()
     assert data["action"] == "ALLOW"
     assert data["semantic"]["guardrail_profile"] == "standard"
     assert data["semantic"]["filters"] == {"department": "finance"}
@@ -38,7 +42,7 @@ def test_semantic_jailbreak_upgrades_allow_to_block(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
     monkeypatch.setattr(gateway.semantic_client, "analyze",
                         lambda prompt: _analysis("maximum_security_block", "potential_jailbreak"))
-    data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=HEADERS).json()
+    data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers()).json()
     assert (data["status"], data["action"]) == ("blocked", "BLOCK")
     assert any("Semantic layer" in reason for reason in data["reasons"])
     assert data["risk_score"] >= gateway.BLOCK_THRESHOLD
@@ -47,6 +51,6 @@ def test_semantic_jailbreak_upgrades_allow_to_block(monkeypatch):
 def test_gateway_works_when_semantic_layer_is_down(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
     monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt: None)
-    response = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=HEADERS)
+    response = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers())
     assert response.status_code == 200
     assert response.json()["action"] == "ALLOW" and "semantic" not in response.json()

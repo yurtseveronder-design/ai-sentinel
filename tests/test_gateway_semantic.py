@@ -2,6 +2,7 @@ import os
 
 os.environ.setdefault("AI_SENTINEL_API_KEY", "test-api-key")
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ai_sentinel.api import gateway
@@ -9,9 +10,14 @@ from ai_sentinel.api import gateway
 client = TestClient(gateway.app)
 
 
+@pytest.fixture(autouse=True)
+def _known_key(monkeypatch):
+    # Other test modules reload the gateway; pin the key this module authenticates with.
+    monkeypatch.setattr(gateway, "API_KEY", "semantic-test-key")
+
+
 def _headers():
-    # Read at call time: other test modules may reload the gateway with a different key.
-    return {"X-API-Key": gateway.API_KEY}
+    return {"X-API-Key": "semantic-test-key"}
 
 
 def _analysis(profile, intent="general_chat"):

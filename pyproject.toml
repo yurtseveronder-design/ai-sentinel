@@ -7,7 +7,7 @@ name = "ai-sentinel"
 version = "1.2.0"
 description = "Enterprise-grade secure routing and evaluation gateway for AI and RAG pipelines."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -21,6 +21,9 @@ dependencies = [
     "PyYAML>=6.0"
 ]
 
+[project.scripts]
+ai-sentinel = "ai_sentinel.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
@@ -31,4 +34,4 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-ai_sentinel = ["*.json", "*.yaml", "*.yml", "*.txt", "config/*", "rules/*"]
+ai_sentinel = ["*.yaml"]

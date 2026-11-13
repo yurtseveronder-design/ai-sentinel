@@ -20,3 +20,8 @@ logs/
 # IDEs
 .idea/
 .vscode/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/

@@ -10,7 +10,7 @@ def main():
     # Inspect command
     inspect_parser = subparsers.add_parser("inspect", help="Inspect a prompt or text string")
     inspect_parser.add_argument("--text", type=str, required=True, help="Text to inspect")
-    inspect_parser.add_argument("--config", type=str, default=None, help="Path to threat signatures YAML")
+    inspect_parser.add_argument("--threshold", type=float, default=0.7, help="Risk score at or above which the prompt is blocked")
 
     # Serve command
     serve_parser = subparsers.add_parser("serve", help="Start the FastAPI security gateway")
@@ -22,16 +22,16 @@ def main():
 
     if args.command == "inspect":
         try:
-            shield = SecurityShield(config_path=args.config)
+            shield = SecurityShield(block_threshold=args.threshold)
             verdict = shield.inspect(text=args.text)
-            print("\n--- Inspection Verdict ---")
-            print(f"Action: {verdict.action}")
-            print(f"Flagged: {verdict.flagged}")
-            print(f"Risk Score: {verdict.risk_score}")
-            print(f"Reasons: {verdict.reason}")
         except Exception as e:
             print(f"Error during inspection: {e}", file=sys.stderr)
             sys.exit(1)
+        print("\n--- Inspection Verdict ---")
+        print(f"Action: {verdict.action}")
+        print(f"Risk Score: {verdict.risk_score}")
+        print(f"Reasons: {', '.join(verdict.reasons) or 'none'}")
+        sys.exit(1 if verdict.action == "BLOCK" else 0)
 
     elif args.command == "serve":
         print(f"Starting AI Sentinel Gateway on {args.host}:{args.port}...")

@@ -1,29 +1,17 @@
 FROM python:3.10-slim
 
-# Create a non-root user
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN useradd -m -s /bin/bash sentinel
-
 WORKDIR /app
 
-# Install dependencies first for Docker caching
-COPY pyproject.toml .
-RUN pip install --no-cache-dir . fastapi uvicorn pydantic pyyaml requests
-
-# Copy the application code
+COPY pyproject.toml README.md LICENSE MANIFEST.in ./
 COPY src/ ./src/
-COPY tests/ ./tests/
+RUN pip install --no-cache-dir .
 
-# Create the logs directory and assign ownership to the non-root user
-RUN mkdir -p logs && chown -R sentinel:sentinel /app
-
-# Switch to the non-root user for security
+RUN chown -R sentinel:sentinel /app
 USER sentinel
 
-# Set environment variables
-ENV PYTHONPATH=/app/src
-ENV AI_SENTINEL_AUDIT_PATH=/app/logs/audit.jsonl
-
 EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health')"
 
-# Start the application using our unified CLI
-CMD ["python", "src/ai_sentinel/cli.py", "serve", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["ai-sentinel", "serve", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,72 +1,99 @@
 """
-Core Security Shield for AI Sentinel.
-High-performance, linear-time O(N) evaluation engine for prompt injection and threat detection.
+SecurityShield Core Inspection Engine for AI-Sentinel.
+Inspects prompts for prompt injection, jailbreaks, and security threats.
 """
 
 import re
-from typing import List, NamedTuple, Optional
-from ai_sentinel.core.normalizer import InputNormalizer
+from typing import Any, Tuple, Union, List
+from ai_sentinel.normalizers.base import InputNormalizer
 
+class ShieldVerdict:
+    """
+    Represents the verdict of a shield inspection.
+    """
+    ALLOW = "ALLOW"
+    BLOCK = "BLOCK"
+    WARNING = "WARNING"
 
-class SecurityVerdict(NamedTuple):
-  action: str  # "ALLOW" or "BLOCK"
-  risk_score: float  # 0.0 to 1.0
-  reasons: List[str]  # Detected violation descriptions
+class InspectionResult(str, ShieldVerdict):
+    """
+    Inspection result supporting tuple unpacking (verdict, score, reasons) and verdict checks.
+    """
+    def __new__(cls, action, risk_score, reasons):
+        obj = super().__new__(cls, action)
+        obj.action = action
+        obj.risk_score = risk_score
+        obj.reasons = reasons
+        obj.reason = reasons
+        obj.flagged = action == cls.BLOCK
+        return obj
 
+    def __iter__(self):
+        return iter((self.action, self.risk_score, self.reasons))
 
-ShieldVerdict = SecurityVerdict
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return (self.action, self.risk_score, self.reasons)[index]
+        tup = (self.action, self.risk_score, self.reasons)
+        if index < len(tup):
+            return tup[index]
+        return self.action
 
+ShieldResult = Tuple[str, List[str]]
 
 class SecurityShield:
-  """Optimized security shield for evaluating LLM prompts against prompt injection threats."""
+    """
+    Shield engine that evaluates prompts against security rules and patterns.
+    """
+    def __init__(self, sensitivity: str = "medium", block_threshold: float = 0.7, threshold: float = None, **kwargs):
+        self.sensitivity = sensitivity
+        self.block_threshold = threshold if threshold is not None else block_threshold
+        # Strict malicious injection patterns (avoiding benign queries like system instruction inquiries unless explicit jailbreak)
+        self.threat_patterns = [
+            r"ignore\s+(previous|all)\s+instructions",
+            r"reveal\s+(your\s+)?(password|secret|api[_\s]?key)",
+            r"bypass\s+(safety|security)",
+            r"you\s+are\s+now\s+dan",
+            r"enable\s+developer\s+mode",
+            r"bypass\s+rules"
+        ]
 
-  def __init__(self, block_threshold: float = 0.7):
-    self.block_threshold = block_threshold
-    self.normalizer = InputNormalizer()
+    def inspect(self, prompt: str = None, text: str = None, **kwargs) -> InspectionResult:
+        """
+        Normalizes the incoming prompt, maps homoglyphs, and inspects it for security violations.
+        """
+        target_text = prompt if prompt is not None else (text if text is not None else "")
+        if not isinstance(target_text, str):
+            target_text = str(target_text) if target_text else ""
 
-    # Threat and test-aligned patterns (Linear O(N) regex compilation)
-    # Weights >= 0.7 trigger BLOCK, weights < 0.7 trigger ALLOW
-    self.threat_patterns = [
-        # Explicit BLOCK cases from test suite
-        (re.compile(r"ignore\s+(previous|prior|all)\s+instructions?", re.IGNORECASE), 0.85, "Prompt override attempt detected"),
-        (re.compile(r"іgnore\s+previous", re.IGNORECASE), 0.85, "Cyrillic prompt override attempt detected"),
-        (re.compile(r"reveal\s+(your\s+)?(password|api[_\s]?key|system\s+prompt|secret)", re.IGNORECASE), 0.90, "Credential / system prompt extraction attempt"),
+        # The package normalizer: NFKC, invisible characters, then whitespace.
+        clean_prompt = InputNormalizer().normalize(target_text)
         
-        # Explicit ALLOW test cases (weighted safely below block_threshold 0.7)
-        (re.compile(r"disregard\s+(all\s+)?prior\s+rules?", re.IGNORECASE), 0.10, "Benign prior rules reference"),
-        (re.compile(r"disable\s+all\s+safety\s+filters?", re.IGNORECASE), 0.10, "Benign test filter reference"),
-        (re.compile(r"forget\s+(my\s+)?old\s+password", re.IGNORECASE), 0.20, "Benign user credential reset request"),
-        (re.compile(r"override\s+the\s+default\s+css", re.IGNORECASE), 0.10, "Benign UI styling override request"),
-        (re.compile(r"show\s+me\s+your\s+system\s+instructions", re.IGNORECASE), 0.10, "Benign query request"),
-        (re.compile(r"ignore\s+this\s+instruction", re.IGNORECASE), 0.10, "Benign clause"),
-        (re.compile(r"reveal\s+the\s+api\s+key", re.IGNORECASE), 0.10, "Benign query request"),
-    ]
+        # Normalize Cyrillic homoglyphs (e.g. Cyrillic 'і' -> Latin 'i') for robust detection
+        homoglyph_map = {
+            '\u0456': 'i',  # Cyrillic small letter byelorussian-ukrainian i
+            '\u0406': 'I',  # Cyrillic capital letter i
+            '\u0430': 'a',  # Cyrillic small letter a
+            '\u0435': 'e',  # Cyrillic small letter e
+            '\u043e': 'o',  # Cyrillic small letter o
+            '\u0440': 'p',  # Cyrillic small letter er
+            '\u0441': 'c',  # Cyrillic small letter es
+            '\u0445': 'x',  # Cyrillic small letter ha
+            '\u0443': 'y',  # Cyrillic small letter u
+        }
+        normalized_chars = [homoglyph_map.get(char, char) for char in clean_prompt]
+        lower_prompt = "".join(normalized_chars).lower()
 
-  def inspect(self, text: Optional[str] = None, prompt: Optional[str] = None) -> SecurityVerdict:
-    """Inspects text/prompt in linear O(N) time and returns an evaluation verdict."""
-    raw_text = text if text is not None else (prompt if prompt is not None else "")
-    if not raw_text or not raw_text.strip():
-      return SecurityVerdict(action="ALLOW", risk_score=0.0, reasons=[])
+        reasons = []
+        risk_score = 0.0
+        for pattern in self.threat_patterns:
+            if re.search(pattern, lower_prompt, re.IGNORECASE):
+                reasons.append(f"Matched threat signature: {pattern}")
+                risk_score = 0.9
 
-    normalized_text = raw_text
-    try:
-      if hasattr(self.normalizer, "normalize"):
-        normalized_text = self.normalizer.normalize(raw_text)
-      elif hasattr(self.normalizer, "clean"):
-        normalized_text = self.normalizer.clean(raw_text)
-    except Exception:
-      normalized_text = raw_text
+        action = ShieldVerdict.BLOCK if (risk_score >= self.block_threshold or reasons) else ShieldVerdict.ALLOW
+        if not reasons:
+            reasons = ["Prompt passed security inspection"]
+            risk_score = 0.0
 
-    max_risk = 0.0
-    reasons = []
-
-    for pattern, weight, reason in self.threat_patterns:
-      if pattern.search(normalized_text) or pattern.search(raw_text):
-        if weight > max_risk:
-          max_risk = weight
-        if reason not in reasons and weight >= self.block_threshold:
-          reasons.append(reason)
-
-    action = "BLOCK" if max_risk >= self.block_threshold else "ALLOW"
-
-    return SecurityVerdict(action=action, risk_score=round(max_risk, 2), reasons=reasons)
+        return InspectionResult(action, risk_score, reasons)

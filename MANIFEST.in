@@ -1,5 +1,8 @@
 include README.md
 include LICENSE
-recursive-include src/ai_sentinel *.yaml
+recursive-include config *
+recursive-include rules *
+recursive-include src/ai_sentinel *.json *.yaml *.yml *.txt
+include src/ai_sentinel/py.typed
 global-exclude __pycache__
 global-exclude *.py[cod]

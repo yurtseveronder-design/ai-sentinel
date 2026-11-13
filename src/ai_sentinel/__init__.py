@@ -1,3 +1,20 @@
-"""AI Sentinel: rule-based prompt-injection detection and a FastAPI gateway."""
+"""
+AI-Sentinel Root Package.
+"""
 
-__version__ = "1.2.0"
+from ai_sentinel.core.shield import SecurityShield, ShieldResult
+from ai_sentinel.normalizers import InputNormalizer
+from ai_sentinel.core.heuristic_scorer import HeuristicScorer
+from ai_sentinel.core.semantic_scorer import SemanticFuzzyScorer
+from ai_sentinel.core.rate_limiter import SimpleRateLimiter
+from ai_sentinel.core.audit import AuditLogger
+
+__all__ = [
+    "SecurityShield",
+    "ShieldResult",
+    "InputNormalizer",
+    "HeuristicScorer",
+    "SemanticFuzzyScorer",
+    "SimpleRateLimiter",
+    "AuditLogger"
+]

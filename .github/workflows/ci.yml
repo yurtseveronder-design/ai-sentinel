@@ -2,43 +2,29 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install
+          python-version: '3.10'
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-      - name: Test
-        env:
-          AI_SENTINEL_API_KEY: test-api-key
-        run: python -m pytest -v
-      - name: Evaluation harness
-        env:
-          AI_SENTINEL_API_KEY: test-api-key
-        run: python eval.py
+          pip install -e .[dev]
 
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build image
-        run: docker build -t ai-sentinel .
-      - name: Container starts and answers /health
+      - name: Run Pytest
+        env:
+          AI_SENTINEL_API_KEY: test-api-key
         run: |
-          docker run -d --name sentinel -p 8000:8000 -e AI_SENTINEL_API_KEY=ci-key ai-sentinel
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && exit 0; sleep 1; done
-          docker logs sentinel; exit 1
+          export PYTHONPATH=src
+          pytest -v

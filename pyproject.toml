@@ -11,27 +11,36 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Typing :: Typed",
 ]
 dependencies = [
     "fastapi>=0.100.0",
+    "starlette>=0.27.0",
     "uvicorn>=0.22.0",
     "pydantic>=2.0.0",
-    "PyYAML>=6.0"
+    "PyYAML>=6.0",
+    "requests>=2.28.0",
+    "typing-extensions>=4.9.0",
 ]
 
-[project.scripts]
-ai-sentinel = "ai_sentinel.cli:main"
-
 [project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+]
 dev = [
     "pytest>=7.0.0",
-    "httpx2"
+    "pytest-cov>=4.0.0",
+    "httpx2",
+    "deepeval>=0.20.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ai_sentinel = ["*.yaml"]
+ai_sentinel = ["*.json", "*.yaml", "*.yml", "*.txt", "py.typed", "config/*", "rules/*"]

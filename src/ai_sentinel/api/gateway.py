@@ -14,6 +14,7 @@ from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from ai_sentinel import semantic_client
 from ai_sentinel.core.shield import SecurityShield
 
 # Enforce API key check at module import time for fail-closed startup validation
@@ -136,19 +137,37 @@ def scan_prompt(payload: ScanRequest, request: Request, x_api_key: Optional[str]
   # Run evaluation through SecurityShield
   verdict = shield.inspect(prompt=text_to_scan)
 
+  action = verdict.action
+  risk_score = verdict.risk_score
+  reasons = list(verdict.reasons)
+
+  # Optional semantic enrichment (sentinel-semantic). Fails open: if the service
+  # is unreachable the rule-based verdict above stands on its own.
+  semantic = None
+  analysis = semantic_client.analyze(text_to_scan) if semantic_client.semantic_enabled() else None
+  if analysis:
+    semantic = semantic_client.summarize(analysis)
+    if semantic["guardrail_profile"] == "maximum_security_block" and action != "BLOCK":
+      action = "BLOCK"
+      risk_score = max(risk_score, BLOCK_THRESHOLD)
+      reasons.append("Semantic layer: potential jailbreak intent")
+
   # Log event with request tracing ID
   _log_audit_event(
       request_id=request_id,
       client_ip=client_ip,
       prompt=text_to_scan,
-      action=verdict.action,
-      risk_score=verdict.risk_score,
-      reasons=verdict.reasons,
+      action=action,
+      risk_score=risk_score,
+      reasons=reasons,
   )
 
-  return {
-      "status": "blocked" if verdict.action == "BLOCK" else "allowed",
-      "action": verdict.action,
-      "risk_score": verdict.risk_score,
-      "reasons": verdict.reasons,
+  result = {
+      "status": "blocked" if action == "BLOCK" else "allowed",
+      "action": action,
+      "risk_score": risk_score,
+      "reasons": reasons,
   }
+  if semantic is not None:
+    result["semantic"] = semantic
+  return result

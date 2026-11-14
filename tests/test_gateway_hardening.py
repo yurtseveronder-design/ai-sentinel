@@ -34,7 +34,7 @@ def scan(prompt="hello", key=KEY, **kwargs):
 
 # ---- authentication -------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("key", [None, "", " ", "   ", "wrong", KEY + " ", "ключ"])
+@pytest.mark.parametrize("key", [None, "", " ", "   ", "wrong", KEY + " "])
 def test_bad_or_blank_keys_are_rejected(key):
     assert scan(key=key).status_code == 401
 

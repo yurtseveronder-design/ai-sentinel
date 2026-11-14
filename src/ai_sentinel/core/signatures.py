@@ -13,55 +13,42 @@ _VERBS_LEAK = r"(?:reveal|show|print|repeat|output|display|dump|tell\s+me|give\s
 _VERBS_DROP = r"(?:ignore|disregard|forget|override|discard)"
 _PRIOR = r"(?:previous|prior|earlier|above|preceding|former|original|system|safety|initial)"
 _RULES = r"(?:instructions?|directives?|rules|guidelines|programming|prompt|commands|training)"
+# "ignore the previous instructions in the recipe" talks ABOUT some document's instructions, not the model's
+_NOT_ABOUT_A_DOCUMENT = r"(?!\s+(?:in|from|on|for|at|about|within|inside)\b)"
+# "enable developer mode" is a normal phone/browser setting; only block it away from device context
+_NOT_A_DEVICE = r"(?!.{0,60}\b(?:android|iphone|ios|phone|tablet|device|browser|chrome|firefox|safari|settings|usb|debugging|samsung|windows|xbox|steam|app|menu|extension)\b)"
 
 # English signatures, matched against the folded (lowercase, de-obfuscated) text.
 ENGLISH: Dict[str, List[str]] = {
     "direct_injection": [
         r"ignore\s+(?:previous|all)\s+instructions",  # original signature
-        rf"\b{_VERBS_DROP}\s+(?:all\s+|any\s+)?(?:of\s+)?(?:your\s+|the\s+|my\s+|these\s+|those\s+)?{_PRIOR}\s+{_RULES}",
+        rf"\b{_VERBS_DROP}\s+(?:all\s+|any\s+)?(?:of\s+)?(?:your\s+|the\s+|my\s+|these\s+|those\s+)?{_PRIOR}\s+{_RULES}\b{_NOT_ABOUT_A_DOCUMENT}",
         rf"\b{_VERBS_DROP}\s+(?:all|your|any)\s+(?:of\s+)?(?:the\s+)?(?:{_RULES}|restrictions|ethics|safety)",
-        r"\bignore\s+the\s+(?:rules|instructions|guidelines)\s+(?:you|that\s+you|given|i)\b",
         r"\bforget\s+(?:everything|all)\s+(?:you\s+(?:were|have\s+been)\s+told|i\s+said|above|before)",
-        r"\bstop\s+(?:following|obeying|abiding\s+by)\s+(?:your|the|all)\s+(?:rules|guidelines|instructions|restrictions|programming)",
         r"\byou\s+(?:no\s+longer|don'?t|do\s+not)\s+(?:have|need\s+to\s+follow)\s+(?:any\s+)?(?:restrictions|rules|limits|guidelines)",
         rf"\b(?:throw\s+away|set\s+aside|pay\s+no\s+attention\s+to|never\s?mind|cancel(?:led)?)\s+(?:all\s+)?(?:of\s+)?(?:the\s+|your\s+|my\s+)?(?:{_PRIOR}|developer|system)?\s*(?:{_RULES}|orders|directions|messages?|guidelines)",
-        r"\byour\s+(?:previous|prior|earlier)\s+(?:orders|instructions|rules)\s+(?:are|were)\s+(?:cancell?ed|void|revoked)",
-        r"\b(?:disregard|forget|ignore)\s+what\s+you\s+(?:were|have\s+been)\s+told\b",
     ],
     "prompt_leak": [
         r"reveal\s+(?:your\s+)?(?:password|secret|api[_\s]?key)",  # original signature
         rf"{_VERBS_LEAK}\b.{{0,30}}\b(?:your|the)\s+(?:system|initial|original|hidden|secret|internal)\s+(?:prompt|instructions|configuration|config|rules)",
-        rf"\b(?:what|which)\b.{{0,30}}(?:instructions|rules|prompt).{{0,15}}you\s+(?:were|are|have\s+been)\s+given",
         r"\brepeat\s+(?:everything|all|the\s+text|the\s+words)\s+(?:above|before)\b",
         rf"\b{_VERBS_LEAK}\b.{{0,40}}\b(?:your|admin|root|system|internal|hidden|stored|environment)\b.{{0,40}}\b(?:passwords?|credentials|api[_\s]?keys?|secret\s+keys?|private\s+keys?|access\s+tokens?)\b",
-        rf"\b{_VERBS_LEAK}\b.{{0,20}}\bsecret\s+(?:keys?|passwords?|tokens?)\b",
         r"\b(?:paste|quote|print|output|read\s+back|reveal|show|repeat|display)\b.{0,40}\b(?:your|their|its)\s+(?:full\s+|exact\s+|complete\s+)?(?:instructions|prompt|rules|system\s+message)\b",
         r"\b(?:your|their|its)\s+(?:hidden|system|secret|initial)\s+(?:prompt|instructions|message)\b",
-        r"\b(?:prompt|instructions|rules)\s+you\s+(?:were|are|have\s+been)\s+(?:configured|initialized|set\s+up|programmed)\s+with\b",
-        r"\b(?:rules|instructions|guidelines)\s+you\s+(?:operate|run|work)\s+(?:under|by)\b",
-        r"\b(?:secret|private|hidden)\s+(?:values?|data)\b.{0,30}\b(?:config|configuration|environment)\b",
     ],
     "jailbreak": [
         r"you\s+are\s+now\s+dan",  # original signature
-        r"enable\s+developer\s+mode",  # original signature
+        rf"enable\s+developer\s+mode{_NOT_A_DEVICE}",  # original signature, minus the phone/browser setting
         r"bypass\s+rules",  # original signature
         r"bypass\s+(?:safety|security)",  # original signature
         r"\byou\s+are\s+(?:now\s+)?dan\b",
         r"\bdo\s+anything\s+now\b",
-        r"\b(?:enable|enter|activate|switch\s+to)\s+(?:developer|god|evil|dan|jailbreak(?:ed)?|unrestricted)\s+mode\b",
+        rf"\b(?:enable|enter|activate|switch\s+to)\s+(?:developer|god|evil|dan|jail(?:break(?:ed)?|broken)|unrestricted)\s+mode\b{_NOT_A_DEVICE}",
         r"\bbypass\s+(?:the\s+|all\s+|your\s+)?(?:safety|security|content|rules?|restrictions?|filters?|guardrails?)\b",
         r"\bdisable\s+(?:all\s+|your\s+)?(?:content\s+|safety\s+|security\s+)?(?:filters?|restrictions|safeguards|guardrails)\b",
         r"\b(?:unfiltered|uncensored|unrestricted)\s+(?:ai|model|mode|assistant|version)\b",
-        r"\b(?:ai|model|assistant|bot|chatbot)\b.{0,40}\b(?:no|without(?:\s+any)?)\s+(?:restrictions|limits|limitations|filters|safety\s+rules|guardrails|rules)\b",
+        r"\b(?:ai|model|assistant|bot|chatbot)\b.{0,40}\b(?:no|without(?:\s+any)?)\s+(?:restrictions|limits|limitations|filters|safety\s+rules|guardrails|rules)\b(?!\s+(?:on|for|in|of)\b)",
         r"\b(?:act|pretend|roleplay)\b.{0,20}\b(?:as|to\s+be)\b.{0,10}\b(?:deceased|late|dead)\s+(?:grand)?(?:mother|father|ma|pa)\b",
-        r"\byou\s+(?:never|can'?t|cannot|must\s+not|will\s+not)\s+(?:refuse|decline|say\s+no)\b",
-        r"\bbroken\s+free\s+of\s+(?:the\s+)?(?:typical\s+)?confines\b",
-        r"\bif\s+you\s+(?:had|have)\s+(?:zero|no)\s+(?:content\s+)?(?:policy|policies|rules|restrictions|guidelines)\b",
-        r"\b(?:safety|content|ethical)\s+(?:guidelines|rules|policies)\s+(?:don'?t|do\s+not|doesn'?t)\s+exist\b",
-        r"\bnever\s+(?:been\s+)?given\s+any\s+(?:ethical|safety)\b",
-        r"\b(?:safety|security)\s+(?:checks|filters|rules)\s+(?:are|were)\s+(?:waived|disabled|off|lifted)\b",
-        r"\byou(?:'re|\s+are)\s+(?:now\s+)?in\s+(?:developer|god|evil|jailbreak|unrestricted|dan)\s+mode\b",
-        r"\ban\s+ai\s+with\s+no\s+(?:rules|restrictions|limits)\b",
     ],
 }
 

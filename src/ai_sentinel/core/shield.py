@@ -5,6 +5,7 @@ Inspects prompts for prompt injection, jailbreaks, and security threats.
 
 import re
 from typing import Any, Tuple, Union, List
+from ai_sentinel.core import signatures
 from ai_sentinel.normalizers.base import InputNormalizer
 
 class ShieldVerdict:
@@ -48,15 +49,8 @@ class SecurityShield:
     def __init__(self, sensitivity: str = "medium", block_threshold: float = 0.7, threshold: float = None, **kwargs):
         self.sensitivity = sensitivity
         self.block_threshold = threshold if threshold is not None else block_threshold
-        # Strict malicious injection patterns (avoiding benign queries like system instruction inquiries unless explicit jailbreak)
-        self.threat_patterns = [
-            r"ignore\s+(previous|all)\s+instructions",
-            r"reveal\s+(your\s+)?(password|secret|api[_\s]?key)",
-            r"bypass\s+(safety|security)",
-            r"you\s+are\s+now\s+dan",
-            r"enable\s+developer\s+mode",
-            r"bypass\s+rules"
-        ]
+        # Threat signatures live in core/signatures.py; kept here as a list for compatibility.
+        self.threat_patterns = signatures.all_english()
 
     def inspect(self, prompt: str = None, text: str = None, **kwargs) -> InspectionResult:
         """
@@ -86,9 +80,25 @@ class SecurityShield:
 
         reasons = []
         risk_score = 0.0
+        variants = signatures.fold(lower_prompt)
         for pattern in self.threat_patterns:
-            if re.search(pattern, lower_prompt, re.IGNORECASE):
+            if any(re.search(pattern, v, re.IGNORECASE) for v in variants):
                 reasons.append(f"Matched threat signature: {pattern}")
+                risk_score = 0.9
+
+        # Multilingual signatures run on the un-folded text (folding would corrupt non-Latin scripts).
+        original_lower = clean_prompt.lower()
+        for language, patterns in signatures.MULTILINGUAL.items():
+            for pattern in patterns:
+                if re.search(pattern, original_lower):
+                    reasons.append(f"Matched {language} threat signature: {pattern}")
+                    risk_score = 0.9
+
+        # Obfuscated spellings ("i.g.n.o.r.e", "ignore-previous-instructions") collapse to one string.
+        squeezed = signatures.squeeze(lower_prompt)
+        for phrase in signatures.SQUEEZED:
+            if phrase in squeezed and not reasons:
+                reasons.append(f"Matched obfuscated threat signature: {phrase}")
                 risk_score = 0.9
 
         action = ShieldVerdict.BLOCK if (risk_score >= self.block_threshold or reasons) else ShieldVerdict.ALLOW

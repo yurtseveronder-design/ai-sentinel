@@ -35,7 +35,8 @@ def main():
 
     elif args.command == "serve":
         print(f"Starting AI Sentinel Gateway on {args.host}:{args.port}...")
-        uvicorn.run("ai_sentinel.api.gateway:app", host=args.host, port=args.port, reload=args.reload)
+        uvicorn.run("ai_sentinel.api.gateway:app", host=args.host, port=args.port, reload=args.reload,
+                    proxy_headers=False)  # never trust X-Forwarded-For from the network
 
     else:
         parser.print_help()

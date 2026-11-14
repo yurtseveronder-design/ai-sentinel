@@ -34,7 +34,7 @@ shield = SecurityShield(block_threshold=BLOCK_THRESHOLD)
 
 # Traffic Control & Protection Constants
 MAX_PAYLOAD_SIZE_BYTES = 16 * 1024  # 16 KB limit
-RATE_LIMIT_MAX_REQUESTS = 50
+RATE_LIMIT_MAX_REQUESTS = int(os.getenv("SENTINEL_RATE_LIMIT_MAX", "50"))  # raise for benchmarks
 RATE_LIMIT_WINDOW_SECONDS = 60
 _request_counts: Dict[str, list] = {}
 

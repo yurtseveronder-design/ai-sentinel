@@ -16,6 +16,7 @@ AI Sentinel can consult [sentinel-semantic](https://github.com/yurtseveronder-de
 | `SENTINEL_SEMANTIC_URL` | Base URL of the semantic service, for example `http://localhost:8100`. Unset = feature off |
 | `SENTINEL_SEMANTIC_API_KEY` | Sent as `X-API-Key` when the semantic service requires it |
 | `SENTINEL_SEMANTIC_TIMEOUT` | Seconds to wait (default `1.5`) |
+| `SENTINEL_RATE_LIMIT_MAX` | Requests allowed per client per minute (default `50`); raise it for benchmarks |
 
 When enabled, `/v1/scan` adds a `semantic` object (`intent`, `guardrail_profile`, `requires_rag`, `sensitivity_tags`, `filters`, `engine`) to its response, and a `maximum_security_block` profile upgrades an ALLOW to a BLOCK. If the semantic service is unreachable, the gateway fails open to its own rule-based verdict.
 

@@ -15,7 +15,7 @@ Modular security gateway, prompt-injection defense, and evaluation harness for L
 
 ## Measured detection quality
 
-Dated **2026-11-14**, `main` at the time, measured with [sentinel-eval](https://github.com/yurtseveronder-design/sentinel-eval)
+Dated **2026-11-14** (classifier rows 2026-11-15), `main` at the time, measured with [sentinel-eval](https://github.com/yurtseveronder-design/sentinel-eval)
 (details and method in its `RESULTS.md`). The **blind set** (55 prompts, never used to write rules) is the figure to trust:
 
 | Configuration | Attacks blocked | Harmless prompts wrongly blocked |
@@ -24,10 +24,12 @@ Dated **2026-11-14**, `main` at the time, measured with [sentinel-eval](https://
 | Embedding semantic, threshold 0.70 | 23% | 0% |
 | Embedding semantic, threshold 0.60 | 47% | 4% |
 | Embedding semantic, threshold 0.50 | 73% | 4% (10-17% on harder sets) |
+| **Trained classifier** (`SEMANTIC_CLASSIFIER_MODEL=protectai/deberta-v3-base-prompt-injection-v2`) | **73%** | 8% |
+| Classifier + embedding 0.60 | **83%** | 8% |
 
 **In plain terms:** the default setup reliably stops the classic English phrases and their obvious variants, and
-little else. It is a first line of defence, not a complete one. For better coverage run the semantic layer with the
-embedding engine and pick a threshold from the table. Known gaps are listed as expected-failure tests in
+little else. It is a first line of defence, not a complete one. For much better coverage run the semantic layer with the trained classifier
+(`pip install "sentinel-semantic[classifier]"`, set `SEMANTIC_CLASSIFIER_MODEL`); the 8% false-block figure is 2 of 25 harmless blind prompts, so expect noise. Known gaps are listed as expected-failure tests in
 `tests/test_signatures.py`. Quoted attack phrases ("explain the 'ignore previous instructions' attack") are blocked too.
 
 ## Semantic layer (optional)
@@ -57,6 +59,8 @@ AI_SENTINEL_API_KEY=change-me SEMANTIC_API_KEY=change-me-too docker compose up -
   (cloud keys, API keys, private keys, JWTs, `password=...`), `REDACT` with masked text when it contains personal data
   (emails, card numbers that pass the Luhn check, US SSNs, IBANs), otherwise `ALLOW`. Findings list types and counts, never values.
   Pattern-based, so it catches common formats, not every leak.
+
+Threat model and known gaps: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## Gateway settings
 

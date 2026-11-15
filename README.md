@@ -50,6 +50,13 @@ Run both services together:
 AI_SENTINEL_API_KEY=change-me SEMANTIC_API_KEY=change-me-too docker compose up --build
 ```
 
+To switch the trained classifier on (opt-in; bigger image, about 2 GB, slower first build):
+
+```bash
+AI_SENTINEL_API_KEY=change-me SEMANTIC_API_KEY=change-me-too \
+  docker compose -f docker-compose.yml -f docker-compose.classifier.yml up --build
+```
+
 ## Adopting it safely: shadow mode, several keys, output scanning
 
 * **Shadow mode** (`AI_SENTINEL_MODE=shadow`): every request is allowed, and the response says `would_have_blocked`.

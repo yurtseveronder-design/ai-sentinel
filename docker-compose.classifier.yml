@@ -1,0 +1,14 @@
+# Opt-in: the semantic service with the trained classifier switched on.
+#   docker compose -f docker-compose.yml -f docker-compose.classifier.yml up --build
+# Bigger image (~2 GB, CPU torch) and slower first build; the default compose stays light.
+services:
+  semantic:
+    build:
+      context: https://github.com/yurtseveronder-design/sentinel-semantic.git#main
+      args:
+        EXTRAS: classifier
+        CLASSIFIER_MODEL: protectai/deberta-v3-base-prompt-injection-v2
+    environment:
+      SEMANTIC_CLASSIFIER_MODEL: protectai/deberta-v3-base-prompt-injection-v2
+      SEMANTIC_CLASSIFIER_THRESHOLD: "0.90"
+      HF_HUB_OFFLINE: "1"

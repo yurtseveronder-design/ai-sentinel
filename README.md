@@ -48,12 +48,23 @@ Run both services together:
 AI_SENTINEL_API_KEY=change-me SEMANTIC_API_KEY=change-me-too docker compose up --build
 ```
 
+## Adopting it safely: shadow mode, several keys, output scanning
+
+* **Shadow mode** (`AI_SENTINEL_MODE=shadow`): every request is allowed, and the response says `would_have_blocked`.
+  Run it on live traffic for a week, look at what it would have refused, tune, then switch to `enforce` (the default).
+* **One key per client** (`AI_SENTINEL_API_KEYS=keyA,keyB`): each key has its own rate-limit budget.
+* **Output scanning** (`POST /v1/scan-output` with `{"text": ...}`): returns `BLOCK` when the answer contains a secret
+  (cloud keys, API keys, private keys, JWTs, `password=...`), `REDACT` with masked text when it contains personal data
+  (emails, card numbers that pass the Luhn check, US SSNs, IBANs), otherwise `ALLOW`. Findings list types and counts, never values.
+  Pattern-based, so it catches common formats, not every leak.
+
 ## Gateway settings
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AI_SENTINEL_API_KEY` | required | API key for `/v1/scan`; blank values are refused at startup |
+| `AI_SENTINEL_API_KEY` | required unless `AI_SENTINEL_API_KEYS` is set | API key for `/v1/scan`; blank values are refused at startup |
 | `AI_SENTINEL_BLOCK_THRESHOLD` | `0.7` | Risk score at or above which the rule shield blocks |
+| `AI_SENTINEL_MODE` | `enforce` | `enforce` or `shadow` |
 | `SENTINEL_RATE_LIMIT_MAX` | `50` | Requests per API key per minute; raise it for benchmarks |
 
 The rate limit is per API key, not per address, and `ai-sentinel serve` ignores `X-Forwarded-For`.

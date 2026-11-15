@@ -19,12 +19,23 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from ai_sentinel import semantic_client
+from ai_sentinel.core.output_scanner import scan_output
 from ai_sentinel.core.shield import SecurityShield
 
 # Enforce API key check at module import time for fail-closed startup validation
 API_KEY = os.getenv("AI_SENTINEL_API_KEY")
-if not API_KEY or not API_KEY.strip():
-  raise SystemExit("CRITICAL: AI_SENTINEL_API_KEY environment variable is mandatory and must not be blank.")
+# Optional extra keys (one per client), comma separated. Blank entries are ignored.
+EXTRA_API_KEYS = [k.strip() for k in os.getenv("AI_SENTINEL_API_KEYS", "").split(",") if k.strip()]
+if (not API_KEY or not API_KEY.strip()) and not EXTRA_API_KEYS:
+  raise SystemExit("CRITICAL: AI_SENTINEL_API_KEY (or AI_SENTINEL_API_KEYS) is mandatory and must not be blank.")
+if API_KEY is not None and not API_KEY.strip():
+  API_KEY = None
+
+# "enforce" blocks; "shadow" always allows but reports what WOULD have been blocked, so a tool can be
+# trialled on live traffic before it is allowed to refuse anything.
+MODE = os.getenv("AI_SENTINEL_MODE", "enforce").strip().lower()
+if MODE not in ("enforce", "shadow"):
+  raise SystemExit("CRITICAL: AI_SENTINEL_MODE must be 'enforce' or 'shadow'.")
 
 app = FastAPI(
     title="AI Sentinel API Gateway",
@@ -132,10 +143,15 @@ async def tracing_and_headers_middleware(request: Request, call_next):
 
 
 def _key_is_valid(candidate: Optional[str]) -> bool:
-  """Constant-time comparison; blank or missing keys are never valid."""
+  """Constant-time comparison against every configured key; blank or missing keys are never valid."""
   if not candidate or not candidate.strip():
     return False
-  return hmac.compare_digest(candidate.encode("utf-8"), API_KEY.encode("utf-8"))
+  accepted = [k for k in [API_KEY, *EXTRA_API_KEYS] if k]
+  probe = candidate.encode("utf-8")
+  matched = False
+  for key in accepted:  # no early exit, so timing does not reveal which key matched
+    matched |= hmac.compare_digest(probe, key.encode("utf-8"))
+  return matched
 
 
 def _rate_limited(api_key: str) -> bool:
@@ -228,6 +244,28 @@ def scan_prompt(payload: ScanRequest, request: Request, x_api_key: Optional[str]
       "risk_score": risk_score,
       "reasons": reasons,
   }
+  if MODE == "shadow":
+    result.update({"status": "allowed", "action": "ALLOW", "mode": "shadow", "would_have_blocked": action == "BLOCK"})
   if semantic is not None:
     result["semantic"] = semantic
   return result
+
+
+class OutputScanRequest(BaseModel):
+  text: str = Field(..., description="Model output to check for leaked secrets and personal data.")
+
+
+@app.post("/v1/scan-output")
+def scan_model_output(payload: OutputScanRequest, request: Request, x_api_key: Optional[str] = Header(None)) -> dict:
+  """Checks a model's answer. Secrets give BLOCK; personal data gives REDACT with the values masked."""
+  if not _key_is_valid(x_api_key):
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key.")
+  if _rate_limited(x_api_key):
+    raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded. Please try again later.")
+  verdict = scan_output(payload.text)
+  body = {"action": verdict.action, "findings": verdict.findings}
+  if verdict.action == "REDACT":
+    body["redacted_text"] = verdict.redacted_text
+  if MODE == "shadow" and verdict.action != "ALLOW":
+    body = {"action": "ALLOW", "mode": "shadow", "would_have": verdict.action, "findings": verdict.findings}
+  return body

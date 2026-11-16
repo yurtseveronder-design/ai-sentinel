@@ -71,3 +71,17 @@ def test_output_scan_in_shadow_mode_never_blocks(client, monkeypatch):
     monkeypatch.setattr(gateway, "MODE", "shadow")
     body = client.post("/v1/scan-output", json={"text": "key AKIAIOSFODNN7EXAMPLE"}, headers={"X-API-Key": KEY}).json()
     assert (body["action"], body["would_have"]) == ("ALLOW", "BLOCK")
+
+
+def test_metrics_endpoint_needs_a_key_and_counts_scans(client):
+    from ai_sentinel import metrics
+    metrics.reset()
+    assert client.get("/metrics").status_code == 401
+    scan(client, ATTACK)
+    client.post("/v1/scan", json={"prompt": "x"}, headers={"X-API-Key": "wrong"})
+    for headers in ({"X-API-Key": KEY}, {"Authorization": f"Bearer {KEY}"}):
+        r = client.get("/metrics", headers=headers)
+        assert r.status_code == 200
+        assert 'sentinel_events_total{event="scan",action="BLOCK"} 1' in r.text
+        assert 'sentinel_events_total{event="auth_failed"} 1' in r.text
+        assert "sentinel_scan_duration_seconds_count 1" in r.text

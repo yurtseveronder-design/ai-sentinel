@@ -28,3 +28,17 @@ jobs:
         run: |
           export PYTHONPATH=src
           pytest -v
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Build and check the distribution
+        run: pip install build twine && python -m build && twine check dist/*
+      - name: The wheel installs and the client imports
+        run: |
+          pip install dist/*.whl
+          python -c "from ai_sentinel.client import SentinelClient; print('client ok')"
+          ai-sentinel --help >/dev/null

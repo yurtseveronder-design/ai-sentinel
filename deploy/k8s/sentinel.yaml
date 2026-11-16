@@ -1,0 +1,64 @@
+# Example only: not tested against a live cluster. Replace the secret values and the image tags before use.
+apiVersion: v1
+kind: Secret
+metadata: {name: sentinel-keys}
+type: Opaque
+stringData:
+  AI_SENTINEL_API_KEY: change-me
+  SEMANTIC_API_KEY: change-me-too
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: sentinel-semantic}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: sentinel-semantic}}
+  template:
+    metadata: {labels: {app: sentinel-semantic}}
+    spec:
+      containers:
+        - name: semantic
+          image: ghcr.io/yurtseveronder-design/sentinel-semantic:latest  # or :latest-classifier (needs ~2 GB RAM)
+          ports: [{containerPort: 8100}]
+          env:
+            - {name: SEMANTIC_API_KEY, valueFrom: {secretKeyRef: {name: sentinel-keys, key: SEMANTIC_API_KEY}}}
+          readinessProbe: {httpGet: {path: /health, port: 8100}, initialDelaySeconds: 5}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 512Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: sentinel-semantic}
+spec:
+  selector: {app: sentinel-semantic}
+  ports: [{port: 8100, targetPort: 8100}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: ai-sentinel}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: ai-sentinel}}
+  template:
+    metadata:
+      labels: {app: ai-sentinel}
+      annotations: {prometheus.io/scrape: "false"}  # /metrics needs an API key; configure a scrape job with authorization
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/yurtseveronder-design/ai-sentinel:latest
+          ports: [{containerPort: 8000}]
+          env:
+            - {name: AI_SENTINEL_API_KEY, valueFrom: {secretKeyRef: {name: sentinel-keys, key: AI_SENTINEL_API_KEY}}}
+            - {name: SENTINEL_SEMANTIC_URL, value: "http://sentinel-semantic:8100"}
+            - {name: SENTINEL_SEMANTIC_API_KEY, valueFrom: {secretKeyRef: {name: sentinel-keys, key: SEMANTIC_API_KEY}}}
+            - {name: AI_SENTINEL_MODE, value: shadow}  # start in shadow, switch to enforce once the numbers look right
+          readinessProbe: {httpGet: {path: /health, port: 8000}}
+          livenessProbe: {httpGet: {path: /health, port: 8000}, initialDelaySeconds: 10}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: ai-sentinel}
+spec:
+  selector: {app: ai-sentinel}
+  ports: [{port: 8000, targetPort: 8000}]

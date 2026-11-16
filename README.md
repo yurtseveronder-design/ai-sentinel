@@ -56,10 +56,12 @@ Dated **2026-11-14** (classifier rows 2026-11-15), `main` at the time, measured 
 | Embedding semantic, threshold 0.50 | 73% | 4% (10-17% on harder sets) |
 | **Trained classifier** (`SEMANTIC_CLASSIFIER_MODEL=protectai/deberta-v3-base-prompt-injection-v2`) | **73%** | 8% |
 | Classifier + embedding 0.60 | **83%** | 8% |
+| Classifier `deepset/deberta-v3-base-injection` | **93%** | 12% |
+| Same + embedding 0.60 | **97%** | 12% |
 
 **In plain terms:** the default setup reliably stops the classic English phrases and their obvious variants, and
 little else. It is a first line of defence, not a complete one. For much better coverage run the semantic layer with the trained classifier
-(`pip install "sentinel-semantic[classifier]"`, set `SEMANTIC_CLASSIFIER_MODEL`); the 8% false-block figure is 2 of 25 harmless blind prompts, so expect noise. Known gaps are listed as expected-failure tests in
+(`pip install "sentinel-semantic[classifier]"`, set `SEMANTIC_CLASSIFIER_MODEL`); the 8% false-block figure is 2 of 25 harmless blind prompts, so expect noise. The deepset classifier catches more but blocks more harmless prompts, and may have seen near-paraphrases of our test prompts in training, so its score may flatter it; a model-by-model comparison with latency (about 3 ms rules only, about 130 ms with a classifier) is in [sentinel-eval/docs/COMPARISON.md](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/docs/COMPARISON.md). Known gaps are listed as expected-failure tests in
 `tests/test_signatures.py`. Quoted attack phrases ("explain the 'ignore previous instructions' attack") are blocked too.
 
 ## Semantic layer (optional)

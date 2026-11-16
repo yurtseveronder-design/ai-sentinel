@@ -39,6 +39,9 @@ dev = [
     "deepeval>=0.20.0",
 ]
 
+[project.scripts]
+ai-sentinel = "ai_sentinel.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

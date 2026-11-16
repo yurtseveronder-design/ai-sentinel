@@ -18,6 +18,10 @@ def main():
     serve_parser.add_argument("--port", type=int, default=8000, help="Bind port")
     serve_parser.add_argument("--reload", action="store_true", help="Enable reload")
 
+    report_parser = subparsers.add_parser("report", help="Summarise the audit ledger as an HTML page (counts only)")
+    report_parser.add_argument("--ledger", default="audit_ledger.jsonl", help="Audit ledger file")
+    report_parser.add_argument("--out", default="audit_report.html", help="HTML file to write")
+
     args = parser.parse_args()
 
     if args.command == "inspect":
@@ -37,6 +41,15 @@ def main():
         print(f"Starting AI Sentinel Gateway on {args.host}:{args.port}...")
         uvicorn.run("ai_sentinel.api.gateway:app", host=args.host, port=args.port, reload=args.reload,
                     proxy_headers=False)  # never trust X-Forwarded-For from the network
+
+    elif args.command == "report":
+        from ai_sentinel.report import write_report
+        try:
+            summary = write_report(args.ledger, args.out)
+        except FileNotFoundError:
+            print(f"Ledger not found: {args.ledger}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Wrote {args.out}: {summary['total']} scans, {summary['actions'].get('BLOCK', 0)} blocked")
 
     else:
         parser.print_help()

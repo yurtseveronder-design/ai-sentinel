@@ -15,9 +15,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, Optional
 from fastapi import FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from ai_sentinel import metrics
 from ai_sentinel import semantic_client
 from ai_sentinel.core.output_scanner import scan_output
 from ai_sentinel.core.shield import SecurityShield
@@ -174,12 +175,26 @@ def health_check() -> dict:
   return {"status": "ok"}
 
 
+@app.get("/metrics")
+def prometheus_metrics(request: Request, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+  """Prometheus text metrics. Needs an API key (X-API-Key, or Authorization: Bearer <key>) so counts are not public."""
+  candidate = x_api_key
+  if candidate is None and authorization and authorization.lower().startswith("bearer "):
+    candidate = authorization[7:].strip()
+  if not _key_is_valid(candidate):
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key.")
+  return Response(metrics.render(), media_type="text/plain; version=0.0.4")
+
+
 @app.post("/v1/scan")
 def scan_prompt(payload: ScanRequest, request: Request, x_api_key: Optional[str] = Header(None)) -> dict:
   """Scans an incoming prompt payload for prompt injection and security violations."""
+  started = time.perf_counter()
   if not _key_is_valid(x_api_key):
+    metrics.inc("auth_failed")
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key.")
   if _rate_limited(x_api_key):
+    metrics.inc("rate_limited")
     raise HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         detail="Rate limit exceeded. Please try again later.",
@@ -238,6 +253,10 @@ def scan_prompt(payload: ScanRequest, request: Request, x_api_key: Optional[str]
       reasons=reasons,
   )
 
+  metrics.inc("scan", action=action)
+  if MODE == "shadow" and action == "BLOCK":
+    metrics.inc("shadow_would_have_blocked")
+  metrics.observe_scan(time.perf_counter() - started)
   result = {
       "status": "blocked" if action == "BLOCK" else "allowed",
       "action": action,

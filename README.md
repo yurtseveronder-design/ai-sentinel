@@ -2,6 +2,24 @@
 
 Modular security gateway, prompt-injection defense, and evaluation harness for LLM applications in Python.
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/yurtseveronder-design/sentinel-rag-demo/blob/main/notebooks/try_sentinel.ipynb)
+
+**Try it now, free, no install:** click the badge, then Runtime, then Run all. Or run the gateway with one command (needs Docker):
+
+```bash
+docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest
+```
+
+**How well does it work?** (55-prompt blind set; small, so indicative. Full table and caveats [below](#measured-detection-quality).)
+
+| Setup | Attacks blocked | Harmless wrongly blocked |
+|---|---|---|
+| Default (rules + keywords) | 10% | 4% |
+| With trained classifier (protectai) | 73% | 8% |
+| With trained classifier (deepset) | 93% | 12% |
+
+The default is a first line of defence only. Turn the classifier on for real use.
+
 ## What it does
 
 `POST /v1/scan` takes a prompt and returns `ALLOW` or `BLOCK` with a risk score and reasons. Decision layers:

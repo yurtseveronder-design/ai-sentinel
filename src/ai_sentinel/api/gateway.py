@@ -45,6 +45,7 @@ app = FastAPI(
 )
 
 # Initialize Security Shield with fail-closed configuration
+SEMANTIC_REQUIRED = os.getenv("SENTINEL_SEMANTIC_REQUIRED", "").strip().lower() in ("1", "true", "yes")
 BLOCK_THRESHOLD = float(os.getenv("AI_SENTINEL_BLOCK_THRESHOLD", "0.7"))
 shield = SecurityShield(block_threshold=BLOCK_THRESHOLD)
 
@@ -175,6 +176,18 @@ def health_check() -> dict:
   return {"status": "ok"}
 
 
+@app.get("/ready")
+def readiness():
+  """Readiness: 200 only if every configured layer is answering. /health stays a plain liveness check."""
+  if semantic_client.semantic_enabled() and not semantic_client.probe():
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"status": "degraded", "semantic": "unavailable", "semantic_required": SEMANTIC_REQUIRED},
+    )
+  return {"status": "ready", "semantic": "ok" if semantic_client.semantic_enabled() else "not_configured",
+          "semantic_required": SEMANTIC_REQUIRED}
+
+
 @app.get("/metrics")
 def prometheus_metrics(request: Request, x_api_key: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
   """Prometheus text metrics. Needs an API key (X-API-Key, or Authorization: Bearer <key>) so counts are not public."""
@@ -229,7 +242,16 @@ def scan_prompt(payload: ScanRequest, request: Request, x_api_key: Optional[str]
   semantic = None
   if semantic_client.semantic_enabled() and text_to_scan:
     try:
-      analysis = semantic_client.analyze(text_to_scan)
+      analysis = semantic_client.analyze(text_to_scan, strict=SEMANTIC_REQUIRED)
+      if analysis is None:
+        metrics.inc("semantic_unavailable")
+    except semantic_client.SemanticUnavailable:
+      metrics.inc("semantic_unavailable")
+      raise HTTPException(
+          status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+          detail="Semantic layer is required but did not answer; no verdict was produced.",
+          headers={"X-Request-ID": request_id},
+      )
     except semantic_client.SemanticRejected:
       analysis = None
       if action != "BLOCK":

@@ -56,3 +56,15 @@ def test_fails_open_when_service_is_down(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("SENTINEL_SEMANTIC_TIMEOUT", "0.5")
     assert semantic_client.analyze("hello") is None
+
+
+def test_strict_mode_raises_when_the_service_is_down_and_probe_reports_it(monkeypatch):
+    from ai_sentinel import semantic_client as sc
+    monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("SENTINEL_SEMANTIC_TIMEOUT", "0.3")
+    assert sc.analyze("hello") is None                      # default: fail open
+    with pytest.raises(sc.SemanticUnavailable):
+        sc.analyze("hello", strict=True)                    # required: refuse to answer
+    assert sc.probe() is False
+    monkeypatch.delenv("SENTINEL_SEMANTIC_URL")
+    assert sc.probe() is True                               # nothing configured, nothing to wait for

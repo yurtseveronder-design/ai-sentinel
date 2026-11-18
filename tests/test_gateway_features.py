@@ -85,3 +85,24 @@ def test_metrics_endpoint_needs_a_key_and_counts_scans(client):
         assert 'sentinel_events_total{event="scan",action="BLOCK"} 1' in r.text
         assert 'sentinel_events_total{event="auth_failed"} 1' in r.text
         assert "sentinel_scan_duration_seconds_count 1" in r.text
+
+
+def test_required_semantic_layer_refuses_instead_of_allowing(client, monkeypatch):
+    monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("SENTINEL_SEMANTIC_TIMEOUT", "0.3")
+    # default: fail open, the rules' verdict stands
+    assert client.post("/v1/scan", json={"prompt": "hello there"}, headers={"X-API-Key": KEY}).status_code == 200
+    # required: no verdict without the configured layer
+    monkeypatch.setattr(gateway, "SEMANTIC_REQUIRED", True)
+    r = client.post("/v1/scan", json={"prompt": "hello there"}, headers={"X-API-Key": KEY})
+    assert r.status_code == 503 and "required" in r.json()["detail"]
+
+
+def test_ready_reports_a_down_semantic_layer_and_health_is_unchanged(client, monkeypatch):
+    assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/ready").json()["semantic"] == "not_configured"
+    monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("SENTINEL_SEMANTIC_TIMEOUT", "0.3")
+    r = client.get("/ready")
+    assert r.status_code == 503 and r.json()["status"] == "degraded"
+    assert client.get("/health").json() == {"status": "ok"}

@@ -23,6 +23,8 @@ curl -s localhost:8000/v1/scan -H "X-API-Key: change-me" -H "Content-Type: appli
 # {"status":"blocked","action":"BLOCK","risk_score":...,"reasons":[...]}
 ```
 
+Install the client from GitHub (the name `ai-sentinel` on PyPI belongs to an unrelated project, so there is no `pip install ai-sentinel`): `pip install "git+https://github.com/yurtseveronder-design/ai-sentinel.git"`.
+
 From Python (standard library only, fails closed if the gateway cannot answer):
 
 ```python
@@ -61,8 +63,21 @@ Dated **2026-11-14** (classifier rows 2026-11-15), `main` at the time, measured 
 
 **In plain terms:** the default setup reliably stops the classic English phrases and their obvious variants, and
 little else. It is a first line of defence, not a complete one. For much better coverage run the semantic layer with the trained classifier
-(`pip install "sentinel-semantic[classifier]"`, set `SEMANTIC_CLASSIFIER_MODEL`); the 8% false-block figure is 2 of 25 harmless blind prompts, so expect noise. The deepset classifier catches more but blocks more harmless prompts, and may have seen near-paraphrases of our test prompts in training, so its score may flatter it; a model-by-model comparison with latency (about 3 ms rules only, about 130 ms with a classifier) is in [sentinel-eval/docs/COMPARISON.md](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/docs/COMPARISON.md). Known gaps are listed as expected-failure tests in
+(use the `latest-classifier` image of [sentinel-semantic](https://github.com/yurtseveronder-design/sentinel-semantic), or install it from GitHub with the `[classifier]` extra, and set `SEMANTIC_CLASSIFIER_MODEL`); the 8% false-block figure is 2 of 25 harmless blind prompts, so expect noise. The deepset classifier catches more but blocks more harmless prompts, and may have seen near-paraphrases of our test prompts in training, so its score may flatter it; a model-by-model comparison with latency (about 3 ms rules only, about 130 ms with a classifier) is in [sentinel-eval/docs/COMPARISON.md](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/docs/COMPARISON.md). Known gaps are listed as expected-failure tests in
 `tests/test_signatures.py`. Quoted attack phrases ("explain the 'ignore previous instructions' attack") are blocked too.
+
+## Targets and where we stand
+
+Written down so progress can be checked against something. Numbers are from the blind set (30 attacks, 25 harmless), which has now been used to compare several models and is therefore **no longer sealed**; a new sealed set is needed before these figures are quoted as unseen-data results.
+
+| Target | Status |
+|---|---|
+| Whole stack catches at least 50% of blind attacks | **Not met by default (10%).** Met with a trained classifier (73-97%, depending on the model). |
+| False blocks on harmless prompts at most 5% | Default 4%. With a classifier 4-12%, so **not reliably met**. |
+| No path lets a prompt through when a configured layer is down | **Met when `SENTINEL_SEMANTIC_REQUIRED=true`** (compose and Kubernetes set it). A bare `docker run` without it still fails open. |
+| The published image starts, in CI | Met; publishing now waits for the CI jobs, including the image test. |
+
+Practical meaning: the default rules alone are a first line against classic phrasings. Real protection needs the classifier switched on and the layer required.
 
 ## Semantic layer (optional)
 
@@ -73,8 +88,9 @@ AI Sentinel can consult [sentinel-semantic](https://github.com/yurtseveronder-de
 | `SENTINEL_SEMANTIC_URL` | Base URL of the semantic service, for example `http://localhost:8100`. Unset = feature off |
 | `SENTINEL_SEMANTIC_API_KEY` | Sent as `X-API-Key` when the semantic service requires it |
 | `SENTINEL_SEMANTIC_TIMEOUT` | Seconds to wait (default `1.5`) |
+| `SENTINEL_SEMANTIC_REQUIRED` | `true` = if the semantic layer does not answer, `/v1/scan` returns **503** instead of an unchecked verdict. Default off (fail open); the compose files and the Kubernetes example turn it on. `/ready` reports 503 while the layer is down (`/health` stays a plain liveness check). |
 
-When enabled, `/v1/scan` adds a `semantic` object (`intent`, `guardrail_profile`, `requires_rag`, `sensitivity_tags`, `filters`, `engine`) to its response, and a `maximum_security_block` profile upgrades an ALLOW to a BLOCK. If the semantic service is unreachable or errors (5xx), the gateway **fails open** to its own rule-based verdict. If it rejects the input (4xx such as 422), the request is **blocked**. Long prompts are analysed in overlapping 4,000-character windows.
+When enabled, `/v1/scan` adds a `semantic` object (`intent`, `guardrail_profile`, `requires_rag`, `sensitivity_tags`, `filters`, `engine`) to its response, and a `maximum_security_block` profile upgrades an ALLOW to a BLOCK. If the semantic service is unreachable or errors (5xx), the gateway **fails open** to its own rule-based verdict unless `SENTINEL_SEMANTIC_REQUIRED=true`, in which case it answers 503; either way the `semantic_unavailable` counter in `/metrics` goes up. If it rejects the input (4xx such as 422), the request is **blocked**. Long prompts are analysed in overlapping 4,000-character windows.
 
 Run both services together:
 

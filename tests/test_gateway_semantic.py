@@ -37,7 +37,7 @@ def test_no_semantic_field_when_layer_disabled(monkeypatch):
 
 def test_semantic_summary_is_attached(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
-    monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt: _analysis("standard"))
+    monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt, strict=False: _analysis("standard"))
     data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers()).json()
     assert data["action"] == "ALLOW"
     assert data["semantic"]["guardrail_profile"] == "standard"
@@ -47,7 +47,7 @@ def test_semantic_summary_is_attached(monkeypatch):
 def test_semantic_jailbreak_upgrades_allow_to_block(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
     monkeypatch.setattr(gateway.semantic_client, "analyze",
-                        lambda prompt: _analysis("maximum_security_block", "potential_jailbreak"))
+                        lambda prompt, strict=False: _analysis("maximum_security_block", "potential_jailbreak"))
     data = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers()).json()
     assert (data["status"], data["action"]) == ("blocked", "BLOCK")
     assert any("Semantic layer" in reason for reason in data["reasons"])
@@ -56,7 +56,7 @@ def test_semantic_jailbreak_upgrades_allow_to_block(monkeypatch):
 
 def test_gateway_works_when_semantic_layer_is_down(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
-    monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt: None)
+    monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt, strict=False: None)
     response = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers())
     assert response.status_code == 200
     assert response.json()["action"] == "ALLOW" and "semantic" not in response.json()

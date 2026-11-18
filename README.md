@@ -60,7 +60,21 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **API contract:** [`openapi.json`](openapi.json) (machine-readable, tested against the real gateway), [docs/API.md](docs/API.md) (human summary and versioning rules), [docs/CLIENT.md](docs/CLIENT.md) (copy-paste patterns for chat, RAG and agents).
 
-## Use from an AI agent
+## For AI agents
+
+**Preferred ways to try it, in order:**
+
+| Way | Needs | What you get |
+|---|---|---|
+| `sentinel-eval-local` ([sentinel-eval](https://github.com/yurtseveronder-design/sentinel-eval)) | Python, the three repos installed from GitHub | One JSON answer on the benchmark sets, no server; the best way to check a rule or model change |
+| `docker run` one-liner at the top | Docker | The real gateway on port 8000; the image is smoke-tested in CI (starts, healthy, blocks a known attack, exposes metrics) |
+| Colab badge at the top | A Google account (a human) | Real classifiers, nothing to install |
+
+**Contract:** [`openapi.json`](openapi.json). **Latest numbers as JSON:** [`results/latest.json`](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/results/latest.json) (also lists which test sets are spent). **Known failures:** [`data/known_gaps.jsonl`](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/data/known_gaps.jsonl).
+
+**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A classifier raises that to 73-93% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. Fails open unless `SENTINEL_SEMANTIC_REQUIRED=true`. This is a first line of defence, not a guarantee.
+
+**Patterns:**
 
 Three checks, each one call: **check user input** before the model (`guard.check(text)`), **scan retrieved documents** before they enter the prompt (`guard.scan(chunk)`, drop anything not `ALLOW`), **redact output** before it reaches the user (`guard.redact_output(answer)`). If the gateway gives no verdict, treat it as no.
 

@@ -1,0 +1,22 @@
+name: New attack prompt
+description: A prompt-injection or jailbreak text that Sentinel allowed but should block
+labels: [missed-attack]
+body:
+  - type: textarea
+    id: prompt
+    attributes:
+      label: The prompt (exact text)
+      description: No real secrets or personal data, please.
+    validations: {required: true}
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Setup
+      options: [Default (rules + keywords), With protectai classifier, With deepset classifier, Other]
+    validations: {required: true}
+  - type: input
+    id: language
+    attributes: {label: Language (if not English)}
+  - type: textarea
+    id: notes
+    attributes: {label: Anything else, description: "Where you saw this attack, why it should be blocked."}

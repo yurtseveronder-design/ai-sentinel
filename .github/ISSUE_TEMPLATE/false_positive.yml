@@ -1,0 +1,19 @@
+name: False positive
+description: A harmless prompt that Sentinel blocked
+labels: [false-positive]
+body:
+  - type: textarea
+    id: prompt
+    attributes:
+      label: The harmless prompt (exact text)
+      description: No real secrets or personal data, please.
+    validations: {required: true}
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Setup
+      options: [Default (rules + keywords), With protectai classifier, With deepset classifier, Other]
+    validations: {required: true}
+  - type: textarea
+    id: reason
+    attributes: {label: What the response said (reasons / risk score), description: "Paste the JSON response if you have it."}

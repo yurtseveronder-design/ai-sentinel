@@ -2,6 +2,8 @@
 
 Modular security gateway, prompt-injection defense, and evaluation harness for LLM applications in Python.
 
+[![CI](https://github.com/yurtseveronder-design/ai-sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/yurtseveronder-design/ai-sentinel/actions/workflows/ci.yml) · [Contributing](CONTRIBUTING.md) · Found a miss or a false block? [Open an issue](https://github.com/yurtseveronder-design/ai-sentinel/issues/new/choose)
+
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/yurtseveronder-design/sentinel-rag-demo/blob/main/notebooks/try_sentinel.ipynb)
 
 **Try it now, free, no install:** click the badge, then Runtime, then Run all. Or run the gateway with one command (needs Docker):

@@ -58,6 +58,8 @@ except PromptBlocked as blocked:
 safe_answer = guard.redact_output(model_answer)   # masks personal data, raises if it leaks a secret
 ```
 
+**API contract:** [`openapi.json`](openapi.json) (machine-readable, tested against the real gateway), [docs/API.md](docs/API.md) (human summary and versioning rules), [docs/CLIENT.md](docs/CLIENT.md) (copy-paste patterns for chat, RAG and agents).
+
 ## Running it in production
 
 - **Start in shadow mode** (`AI_SENTINEL_MODE=shadow`): nothing is blocked, but every response says `would_have_blocked`, so you can see the effect on real traffic first.

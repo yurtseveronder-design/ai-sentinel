@@ -1,0 +1,524 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AI-Sentinel gateway",
+    "version": "1.0.0",
+    "description": "Contract version 1.0.0 (not the package version). Within 1.x, fields are only ever added (optional) and never removed or renamed; clients must ignore unknown fields. See docs/API.md."
+  },
+  "paths": {
+    "/v1/scan": {
+      "post": {
+        "operationId": "scanPrompt",
+        "summary": "Scan a prompt before it reaches a model",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verdict. In enforce mode `action` is the decision; in shadow mode it is always ALLOW and `would_have_blocked` tells the truth.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Semantic layer is required (SENTINEL_SEMANTIC_REQUIRED=true) but did not answer. No verdict was produced: treat as not allowed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for this key (60 s window).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body larger than 16 KB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Body is not valid JSON of the expected shape.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/scan-output": {
+      "post": {
+        "operationId": "scanOutput",
+        "summary": "Check a model answer for leaked secrets and personal data",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OutputScanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verdict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputScanResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded for this key (60 s window).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body larger than 16 KB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Body is not valid JSON of the expected shape.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness",
+        "responses": {
+          "200": {
+            "description": "Process is up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "ready",
+        "summary": "Readiness (checks the semantic layer when configured)",
+        "responses": {
+          "200": {
+            "description": "All configured layers answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A configured layer is down.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "summary": "Prometheus text metrics",
+        "parameters": [
+          {
+            "name": "X-API-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Or `Authorization: Bearer <key>`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus text format.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ScanRequest": {
+        "type": "object",
+        "description": "Send `prompt`, or `encoded_prompt` (base64 of UTF-8 text). If both are missing or empty the text is treated as empty and allowed.",
+        "properties": {
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The prompt or text payload to scan."
+          },
+          "encoded_prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base64-encoded UTF-8 prompt. Used only when `prompt` is empty."
+          }
+        },
+        "additionalProperties": true
+      },
+      "SemanticSummary": {
+        "type": "object",
+        "description": "Present only when the semantic layer is configured and answered.",
+        "properties": {
+          "intent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guardrail_profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`maximum_security_block` upgrades an ALLOW to BLOCK."
+          },
+          "requires_rag": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "sensitivity_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "filters": {
+            "type": "object"
+          },
+          "engine": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "intent",
+          "guardrail_profile",
+          "requires_rag",
+          "sensitivity_tags",
+          "filters",
+          "engine"
+        ]
+      },
+      "ScanResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "allowed",
+              "blocked"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "ALLOW",
+              "BLOCK"
+            ]
+          },
+          "risk_score": {
+            "type": "number",
+            "minimum": 0
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "shadow"
+            ],
+            "description": "Only in shadow mode. The response then always says ALLOW."
+          },
+          "would_have_blocked": {
+            "type": "boolean",
+            "description": "Only in shadow mode."
+          },
+          "semantic": {
+            "$ref": "#/components/schemas/SemanticSummary"
+          }
+        },
+        "required": [
+          "status",
+          "action",
+          "risk_score",
+          "reasons"
+        ],
+        "additionalProperties": true
+      },
+      "OutputScanRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Model output to check."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "OutputFinding": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "type",
+          "count"
+        ],
+        "description": "Types and counts only, never the matched values."
+      },
+      "OutputScanResponse": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "ALLOW",
+              "REDACT",
+              "BLOCK"
+            ],
+            "description": "BLOCK = a secret was found. REDACT = personal data was masked."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutputFinding"
+            }
+          },
+          "redacted_text": {
+            "type": "string",
+            "description": "Only when action is REDACT."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "shadow"
+            ]
+          },
+          "would_have": {
+            "type": "string",
+            "enum": [
+              "BLOCK",
+              "REDACT"
+            ],
+            "description": "Only in shadow mode."
+          }
+        },
+        "required": [
+          "action",
+          "findings"
+        ],
+        "additionalProperties": true
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ]
+      },
+      "ValidationError": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "detail"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false
+      },
+      "Ready": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded"
+            ]
+          },
+          "semantic": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "not_configured",
+              "unavailable"
+            ]
+          },
+          "semantic_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "semantic",
+          "semantic_required"
+        ]
+      }
+    }
+  }
+}

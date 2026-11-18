@@ -60,6 +60,26 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **API contract:** [`openapi.json`](openapi.json) (machine-readable, tested against the real gateway), [docs/API.md](docs/API.md) (human summary and versioning rules), [docs/CLIENT.md](docs/CLIENT.md) (copy-paste patterns for chat, RAG and agents).
 
+## Use from an AI agent
+
+Three checks, each one call: **check user input** before the model (`guard.check(text)`), **scan retrieved documents** before they enter the prompt (`guard.scan(chunk)`, drop anything not `ALLOW`), **redact output** before it reaches the user (`guard.redact_output(answer)`). If the gateway gives no verdict, treat it as no.
+
+```python
+from ai_sentinel.client import SentinelClient, PromptBlocked, SentinelError
+
+guard = SentinelClient("http://localhost:8000", api_key="change-me")
+
+def agent_turn(user_text, retrieve, llm):
+    try:
+        guard.check(user_text)
+        chunks = [c for c in retrieve(user_text) if guard.scan(c)["action"] == "ALLOW"]
+        return guard.redact_output(llm(user_text, chunks))
+    except (PromptBlocked, SentinelError):
+        return "Sorry, I can't help with that."
+```
+
+LangChain and LlamaIndex snippets, and tool-call checks: [docs/AGENTS.md](docs/AGENTS.md).
+
 ## Running it in production
 
 - **Start in shadow mode** (`AI_SENTINEL_MODE=shadow`): nothing is blocked, but every response says `would_have_blocked`, so you can see the effect on real traffic first.

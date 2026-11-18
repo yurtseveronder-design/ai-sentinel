@@ -13,10 +13,23 @@ _VERBS_LEAK = r"(?:reveal|show|print|repeat|output|display|dump|tell\s+me|give\s
 _VERBS_DROP = r"(?:ignore|disregard|forget|override|discard)"
 _PRIOR = r"(?:previous|prior|earlier|above|preceding|former|original|system|safety|initial)"
 _RULES = r"(?:instructions?|directives?|rules|guidelines|programming|prompt|commands|training)"
-# "ignore the previous instructions in the recipe" talks ABOUT some document's instructions, not the model's
-_NOT_ABOUT_A_DOCUMENT = r"(?!\s+(?:in|from|on|for|at|about|within|inside)\b)"
-# "enable developer mode" is a normal phone/browser setting; only block it away from device context
-_NOT_A_DEVICE = r"(?!.{0,60}\b(?:android|iphone|ios|phone|tablet|device|browser|chrome|firefox|safari|settings|usb|debugging|samsung|windows|xbox|steam|app|menu|extension)\b)"
+# "ignore the previous instructions in the recipe" talks ABOUT a named document's instructions, not the model's.
+# The exception only applies when the very next words name a document; "in this conversation" or "for the rest of
+# the chat" do NOT excuse an attack, so an attacker cannot buy an exemption by appending a harmless-sounding tail.
+_DOC_NOUN = (r"(?:recipe|document|doc|file|e-?mail|article|report|manual|contract|spreadsheet|ticket|form|policy|"
+             r"script|essay|paper|page|handbook|guide|assignment|homework|worksheet|template|letter|memo|brief|slides?|deck)")
+# Words that turn "about/for/on ..." back into an instruction to the model rather than a topic.
+_SELF_REFERENCE = (r"(?:safety|security|restrictions?|ethics|limits|limitations|filters?|guardrails|content|everything|anything|"
+                   r"rest|remainder|duration|conversation|chat|session|thread|prompt|message|answers?|responses?)")
+_NOT_ABOUT_A_DOCUMENT = (
+    r"(?!\s+(?:in|from|within|inside)\s+(?:the\s+|this\s+|that\s+|my\s+|our\s+|an?\s+)?(?:[a-z\-]+\s+){0,2}" + _DOC_NOUN + r"\b"
+    r"|\s+(?:on|for|at|about)\s+(?!(?:[a-z']+\s+){0,2}" + _SELF_REFERENCE + r"\b))"
+)
+# "enable developer mode" is a normal phone/browser setting; excused only when a device or browser is named right after it
+_NOT_A_DEVICE = (
+    r"(?!(?:\s+(?:on|in|for|of)\s+(?:my|your|the|an?|this|that)\s+|\s+(?:on|in|for|of)\s+)?"
+    r"(?:android|iphone|ipad|ios|phone|tablet|browser|chrome|firefox|safari|edge|xbox|steam|windows|samsung|usb|settings)\b)"
+)
 
 # English signatures, matched against the folded (lowercase, de-obfuscated) text.
 ENGLISH: Dict[str, List[str]] = {

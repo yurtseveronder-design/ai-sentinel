@@ -23,6 +23,10 @@ WINDOW_OVERLAP = 400
 MAX_WINDOWS = 6
 
 
+class SemanticUnavailable(RuntimeError):
+    """The semantic service could not be reached or failed, and the caller asked for strict behaviour."""
+
+
 class SemanticRejected(RuntimeError):
     """sentinel-semantic answered with a 4xx: the input was refused, not judged."""
 
@@ -63,8 +67,24 @@ def _analyze_one(base: str, prompt: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def analyze(prompt: str) -> Optional[Dict[str, Any]]:
-    """Analyse a prompt. Returns the most severe window's analysis, or None if the service is unavailable."""
+def probe() -> bool:
+    """Is the configured semantic service answering its /health? (Used by /ready.)"""
+    base = os.getenv("SENTINEL_SEMANTIC_URL")
+    if not base:
+        return True
+    try:
+        timeout = float(os.getenv("SENTINEL_SEMANTIC_TIMEOUT", "1.5"))
+        with urllib.request.urlopen(base.rstrip("/") + "/health", timeout=timeout) as response:  # nosec B310
+            return 200 <= response.status < 300
+    except Exception:
+        return False
+
+
+def analyze(prompt: str, strict: bool = False) -> Optional[Dict[str, Any]]:
+    """Analyse a prompt. Returns the most severe window's analysis, or None if the service is unavailable.
+
+    strict=True (SENTINEL_SEMANTIC_REQUIRED): raise SemanticUnavailable instead of returning None, so the
+    caller can refuse to answer rather than silently running without the layer that was configured."""
     base = os.getenv("SENTINEL_SEMANTIC_URL")
     if not base or not prompt:
         return None
@@ -72,6 +92,8 @@ def analyze(prompt: str) -> Optional[Dict[str, Any]]:
     for window in _windows(prompt):
         analysis = _analyze_one(base, window)
         if analysis is None:
+            if strict:
+                raise SemanticUnavailable("semantic layer did not answer")
             return worst  # keep what we learned; the service went away mid-way
         if worst is None:
             worst = analysis

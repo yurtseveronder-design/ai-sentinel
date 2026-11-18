@@ -20,6 +20,8 @@ services:
       - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:?AI_SENTINEL_API_KEY is required}
       - SENTINEL_SEMANTIC_URL=http://semantic:8100
       - SENTINEL_SEMANTIC_API_KEY=${SEMANTIC_API_KEY}
+      # Refuse to answer (HTTP 503) when the semantic layer is down, instead of quietly running on rules alone.
+      - SENTINEL_SEMANTIC_REQUIRED=true
     depends_on:
       semantic:
         condition: service_healthy

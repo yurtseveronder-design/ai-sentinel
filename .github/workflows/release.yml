@@ -1,6 +1,7 @@
 name: release
 # On a v* tag: build, check, and publish to PyPI via trusted publishing (no token stored in GitHub).
-# One-time setup on pypi.org: add a "pending publisher" for project ai-sentinel with this repository and workflow name "release.yml".
+# NOTE: the name "ai-sentinel" is taken on PyPI by an unrelated project; rename the distribution before tagging.
+# One-time setup on pypi.org: add a "pending publisher" for the chosen project name with this repository and workflow name "release.yml".
 on:
   push:
     tags: ["v*"]
@@ -16,5 +17,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
+      - name: Refuse to publish under a name that belongs to someone else
+        run: |
+          if grep -q '^name = "ai-sentinel"' pyproject.toml; then
+            echo "The PyPI name 'ai-sentinel' belongs to an unrelated project. Choose another distribution name in pyproject.toml first."; exit 1
+          fi
       - run: pip install build twine && python -m build && twine check dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1

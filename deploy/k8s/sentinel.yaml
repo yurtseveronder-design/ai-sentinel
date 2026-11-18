@@ -51,8 +51,9 @@ spec:
             - {name: AI_SENTINEL_API_KEY, valueFrom: {secretKeyRef: {name: sentinel-keys, key: AI_SENTINEL_API_KEY}}}
             - {name: SENTINEL_SEMANTIC_URL, value: "http://sentinel-semantic:8100"}
             - {name: SENTINEL_SEMANTIC_API_KEY, valueFrom: {secretKeyRef: {name: sentinel-keys, key: SEMANTIC_API_KEY}}}
+            - {name: SENTINEL_SEMANTIC_REQUIRED, value: "true"}  # 503 instead of silently skipping the semantic layer
             - {name: AI_SENTINEL_MODE, value: shadow}  # start in shadow, switch to enforce once the numbers look right
-          readinessProbe: {httpGet: {path: /health, port: 8000}}
+          readinessProbe: {httpGet: {path: /ready, port: 8000}}  # 503 while the semantic layer is down
           livenessProbe: {httpGet: {path: /health, port: 8000}, initialDelaySeconds: 10}
           resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {memory: 256Mi}}
 ---

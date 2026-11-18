@@ -35,6 +35,7 @@ test = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "jsonschema>=4.0.0",
     "httpx2",
     "deepeval>=0.20.0",
 ]

@@ -69,7 +69,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: The one-command stack (same compose file as the README) starts, is ready, fails closed and blocks
         run: |
-          docker compose -f docker-compose.quickstart.yml -f .github/ci/quickstart.override.yml up -d --build
+          export COMPOSE_FILE=docker-compose.quickstart.yml:.github/ci/quickstart.override.yml
+          docker compose up -d --build
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/ready | grep -q '"ready"' && break; sleep 2; done
           curl -sf http://127.0.0.1:8000/ready || { docker compose logs; exit 1; }
           curl -sf -X POST http://127.0.0.1:8000/v1/scan -H "X-API-Key: demo-key" -H "Content-Type: application/json" \

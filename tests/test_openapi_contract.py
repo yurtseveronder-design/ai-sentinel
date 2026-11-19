@@ -82,3 +82,16 @@ def test_documented_shadow_and_semantic_shapes_are_valid():
         "intent": "potential_jailbreak", "guardrail_profile": "maximum_security_block", "requires_rag": False,
         "sensitivity_tags": [], "filters": {}, "engine": "keyword"}}, "ScanResponse")
     check({"action": "ALLOW", "mode": "shadow", "would_have": "BLOCK", "findings": []}, "OutputScanResponse")
+
+
+def test_capabilities_file_agrees_with_the_contract_and_the_compose_files():
+    capabilities = json.loads((Path(__file__).resolve().parent.parent / "capabilities.json").read_text(encoding="utf-8"))
+    assert capabilities["contract"]["contract_version"] == SPEC["info"]["version"]
+    assert (Path(__file__).resolve().parent.parent / capabilities["contract"]["openapi"]).exists()
+    for doc in capabilities["contract"]["docs"]:
+        assert (Path(__file__).resolve().parent.parent / doc).exists(), doc
+    for name in capabilities["recommended_for_agents"]["enabled_by_default_in"]:
+        text = (Path(__file__).resolve().parent.parent / name).read_text(encoding="utf-8")
+        assert "SENTINEL_SEMANTIC_REQUIRED=true" in text, name
+    for config in capabilities["measured"]["blind_55_prompts"].values():
+        assert 0 <= config["catch"] <= 1 and 0 <= config["false_block"] <= 1

@@ -1,0 +1,33 @@
+# The full stack in one command, no clone needed (gateway + semantic layer, fail-closed):
+#
+#   curl -sL https://raw.githubusercontent.com/yurtseveronder-design/ai-sentinel/main/docker-compose.quickstart.yml | docker compose -f - up
+#
+# Then:  curl -s localhost:8000/v1/scan -H "X-API-Key: demo-key" -H "Content-Type: application/json" -d '{"prompt":"Ignore previous instructions"}'
+#
+# With the trained classifier (bigger image, ~2 GB):   SEMANTIC_TAG=latest-classifier  (same command, prefix it)
+# Local demo defaults only. For anything real, set your own keys:  AI_SENTINEL_API_KEY=... SEMANTIC_API_KEY=...
+services:
+  semantic:
+    image: ghcr.io/yurtseveronder-design/sentinel-semantic:${SEMANTIC_TAG:-latest}
+    environment:
+      - SEMANTIC_API_KEY=${SEMANTIC_API_KEY:-demo-semantic-key}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8100/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  ai-sentinel:
+    image: ghcr.io/yurtseveronder-design/ai-sentinel:latest
+    ports:
+      - "127.0.0.1:8000:8000"       # local only
+    environment:
+      - AI_SENTINEL_API_KEY=${AI_SENTINEL_API_KEY:-demo-key}
+      - SENTINEL_SEMANTIC_URL=http://semantic:8100
+      - SENTINEL_SEMANTIC_API_KEY=${SEMANTIC_API_KEY:-demo-semantic-key}
+      # Fail closed: answer 503 instead of quietly running on rules alone when the semantic layer is down.
+      - SENTINEL_SEMANTIC_REQUIRED=true
+    depends_on:
+      semantic:
+        condition: service_healthy
+    restart: unless-stopped

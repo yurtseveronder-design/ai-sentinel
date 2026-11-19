@@ -1,0 +1,48 @@
+{
+  "name": "AI-Sentinel",
+  "purpose": "Checks prompts for injection attacks before they reach an LLM, and checks model output for secrets and personal data.",
+  "schema_version": 1,
+  "contract": {"openapi": "openapi.json", "contract_version": "1.0.0", "docs": ["docs/API.md", "docs/CLIENT.md", "docs/AGENTS.md"]},
+  "start": {
+    "full_stack_one_command": "curl -sL https://raw.githubusercontent.com/yurtseveronder-design/ai-sentinel/main/docker-compose.quickstart.yml | docker compose -f - up",
+    "gateway_only": "docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest",
+    "no_server_evaluation": "sentinel-eval-local (repo: yurtseveronder-design/sentinel-eval)",
+    "human_browser_demo": "Colab badge in README"
+  },
+  "recommended_for_agents": {
+    "SENTINEL_SEMANTIC_REQUIRED": "true",
+    "why": "Without it the gateway fails open: if the semantic layer is down it silently runs on rules alone, which catch about 10% of unseen attacks.",
+    "client_rule": "No verdict means no. Treat SentinelError and any non-200 as not allowed.",
+    "enabled_by_default_in": ["docker-compose.quickstart.yml", "docker-compose.yml"],
+    "not_enabled_by_default_in": ["bare docker run of the gateway image"]
+  },
+  "checks": [
+    {"where": "user input, before the model", "call": "POST /v1/scan", "client": "guard.check(text)"},
+    {"where": "retrieved documents and tool results, before the prompt", "call": "POST /v1/scan", "client": "guard.scan(chunk)"},
+    {"where": "model output, before the user", "call": "POST /v1/scan-output", "client": "guard.redact_output(text)"}
+  ],
+  "measured": {
+    "source": "results/latest.json in yurtseveronder-design/sentinel-eval (authoritative, includes every configuration)",
+    "unit": "fraction of attacks blocked (catch) and of harmless prompts wrongly blocked (false_block)",
+    "blind_set_status": "spent: it was used to compare models, so it is optimistic for those choices",
+    "blind_55_prompts": {
+      "default_rules_and_keywords": {"catch": 0.10, "false_block": 0.04},
+      "classifier_protectai": {"catch": 0.733, "false_block": 0.08},
+      "classifier_deepset": {"catch": 0.933, "false_block": 0.12}
+    },
+    "sealed_60_prompts": {
+      "status": "unseen, private (hash only is public), authored by an AI, not independent",
+      "default_rules_and_keywords": {"catch": 0.30, "false_block": 0.033},
+      "classifier_configurations": "not run yet"
+    },
+    "latency_ms_per_scan": {"rules_only": 3, "with_classifier": 130, "with_classifier_and_embeddings": 167}
+  },
+  "limits": [
+    "The default setup (rules + keywords) misses most unseen attacks; a trained classifier is opt-in and raises catch rate at the cost of more false blocks.",
+    "Test sets are small (25-48 prompts per label); one prompt moves a rate by 2-4 points.",
+    "Known misses are listed in data/known_gaps.jsonl in sentinel-eval.",
+    "Detects text-level injection; it does not sandbox tools, verify identity, or stop a model from misbehaving on its own.",
+    "A first line of defence, not a guarantee."
+  ],
+  "does_not_store": "Prompt text is never written to logs or the audit ledger (length and hash only)."
+}

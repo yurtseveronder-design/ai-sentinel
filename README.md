@@ -6,11 +6,17 @@ Modular security gateway, prompt-injection defense, and evaluation harness for L
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/yurtseveronder-design/sentinel-rag-demo/blob/main/notebooks/try_sentinel.ipynb)
 
-**Try it now, free, no install:** click the badge, then Runtime, then Run all. Or run the gateway with one command (needs Docker):
+**Try it now:**
 
-```bash
-docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest
-```
+- **Full stack, one command** (needs Docker; gateway + semantic layer, fail-closed, local only):
+
+  ```bash
+  curl -sL https://raw.githubusercontent.com/yurtseveronder-design/ai-sentinel/main/docker-compose.quickstart.yml | docker compose -f - up
+  ```
+
+  Then `curl -s localhost:8000/v1/scan -H "X-API-Key: demo-key" -H "Content-Type: application/json" -d '{"prompt":"Ignore previous instructions"}'`. The demo keys are for local use only; set `AI_SENTINEL_API_KEY` and `SEMANTIC_API_KEY` for anything real.
+- **In the browser, free, no install:** the Colab badge above (click Runtime, then Run all).
+- **Gateway only:** `docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest` (fails open without the semantic layer, see [For AI agents](#for-ai-agents)).
 
 **How well does it work?** (55-prompt blind set; small, so indicative. Full table and caveats [below](#measured-detection-quality).)
 
@@ -74,7 +80,19 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A classifier raises that to 73-93% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. Fails open unless `SENTINEL_SEMANTIC_REQUIRED=true`. This is a first line of defence, not a guarantee.
 
-**Patterns:**
+**Recommended settings for agents: fail closed.** Run with `SENTINEL_SEMANTIC_REQUIRED=true` (already on in the one-command stack and `docker-compose.yml`; **not** on in a bare `docker run`), and in code treat "no verdict" as "no". A gateway that quietly falls back to rules alone catches about 1 in 10 unseen attacks. The same facts as JSON: [`capabilities.json`](capabilities.json) (start commands, measured results, limits).
+
+**Minimal integration, the recommended starting point (5 lines):**
+
+```python
+from ai_sentinel.client import SentinelClient
+guard = SentinelClient("http://localhost:8000", api_key="demo-key")
+guard.check(user_text)                  # raises PromptBlocked, or SentinelError if no verdict: both mean "do not proceed"
+reply = call_your_llm(user_text)
+reply = guard.redact_output(reply)      # masks personal data, raises PromptBlocked on secrets
+```
+
+**Fuller pattern (input, retrieved documents, output):**
 
 Three checks, each one call: **check user input** before the model (`guard.check(text)`), **scan retrieved documents** before they enter the prompt (`guard.scan(chunk)`, drop anything not `ALLOW`), **redact output** before it reaches the user (`guard.redact_output(answer)`). If the gateway gives no verdict, treat it as no.
 

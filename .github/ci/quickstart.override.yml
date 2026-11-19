@@ -1,0 +1,6 @@
+# CI only: same wiring as docker-compose.quickstart.yml, but with images built from this commit and sentinel-semantic main.
+services:
+  semantic:
+    build: https://github.com/yurtseveronder-design/sentinel-semantic.git#main
+  ai-sentinel:
+    build: .

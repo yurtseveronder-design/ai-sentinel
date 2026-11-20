@@ -23,8 +23,8 @@ Modular security gateway, prompt-injection defense, and evaluation harness for L
 | Setup | Attacks blocked | Harmless wrongly blocked |
 |---|---|---|
 | Default (rules + keywords) | 10% | 4% |
-| With trained classifier (protectai) | 73% | 8% |
-| With trained classifier (deepset) | 93% | 12% |
+| With pretrained classifier (ProtectAI, public model) | 73% | 8% |
+| With pretrained classifier (deepset, public model) | 93% | 12% |
 
 The default is a first line of defence only. Turn the classifier on for real use.
 
@@ -78,7 +78,7 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **Contract:** [`openapi.json`](openapi.json). **Latest numbers as JSON:** [`results/latest.json`](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/results/latest.json) (also lists which test sets are spent). **Known failures:** [`data/known_gaps.jsonl`](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/data/known_gaps.jsonl).
 
-**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A classifier raises that to 73-93% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. Fails open unless `SENTINEL_SEMANTIC_REQUIRED=true`. This is a first line of defence, not a guarantee.
+**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A pretrained classifier raises that to 73-97% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. Fails open unless `SENTINEL_SEMANTIC_REQUIRED=true`. This is a first line of defence, not a guarantee.
 
 **Recommended settings for agents: fail closed.** Run with `SENTINEL_SEMANTIC_REQUIRED=true` (already on in the one-command stack and `docker-compose.yml`; **not** on in a bare `docker run`), and in code treat "no verdict" as "no". A gateway that quietly falls back to rules alone catches about 1 in 10 unseen attacks. The same facts as JSON: [`capabilities.json`](capabilities.json) (start commands, measured results, limits).
 
@@ -121,8 +121,8 @@ LangChain and LlamaIndex snippets, and tool-call checks: [docs/AGENTS.md](docs/A
 
 ## Measured detection quality
 
-Dated **2026-11-14** (classifier rows 2026-11-15), `main` at the time, measured with [sentinel-eval](https://github.com/yurtseveronder-design/sentinel-eval)
-(details and method in its `RESULTS.md`). The **blind set** (55 prompts, never used to write rules) is the figure to trust:
+Dated **2026-11-14** (classifier rows 2026-11-15), measured on ai-sentinel `a2d574c`, sentinel-semantic `1312dd5` and sentinel-ui `0346679`, with [sentinel-eval](https://github.com/yurtseveronder-design/sentinel-eval)
+(details and method in its `RESULTS.md`). The **blind set** (55 prompts) was not used to write rules, but it has since been used to compare models, so it is **used up**: read these as indicative, not as results on unseen data.
 
 | Configuration | Attacks blocked | Harmless prompts wrongly blocked |
 |---|---|---|
@@ -130,13 +130,13 @@ Dated **2026-11-14** (classifier rows 2026-11-15), `main` at the time, measured 
 | Embedding semantic, threshold 0.70 | 23% | 0% |
 | Embedding semantic, threshold 0.60 | 47% | 4% |
 | Embedding semantic, threshold 0.50 | 73% | 4% (10-17% on harder sets) |
-| **Trained classifier** (`SEMANTIC_CLASSIFIER_MODEL=protectai/deberta-v3-base-prompt-injection-v2`) | **73%** | 8% |
+| **Pretrained classifier**, ProtectAI public model (`SEMANTIC_CLASSIFIER_MODEL=protectai/deberta-v3-base-prompt-injection-v2`) | **73%** | 8% |
 | Classifier + embedding 0.60 | **83%** | 8% |
-| Classifier `deepset/deberta-v3-base-injection` | **93%** | 12% |
+| Pretrained classifier, deepset public model (`deepset/deberta-v3-base-injection`) | **93%** | 12% |
 | Same + embedding 0.60 | **97%** | 12% |
 
 **In plain terms:** the default setup reliably stops the classic English phrases and their obvious variants, and
-little else. It is a first line of defence, not a complete one. For much better coverage run the semantic layer with the trained classifier
+little else. It is a first line of defence, not a complete one. For much better coverage run the semantic layer with a pretrained classifier
 (use the `latest-classifier` image of [sentinel-semantic](https://github.com/yurtseveronder-design/sentinel-semantic), or install it from GitHub with the `[classifier]` extra, and set `SEMANTIC_CLASSIFIER_MODEL`); the 8% false-block figure is 2 of 25 harmless blind prompts, so expect noise. The deepset classifier catches more but blocks more harmless prompts, and may have seen near-paraphrases of our test prompts in training, so its score may flatter it; a model-by-model comparison with latency (about 3 ms rules only, about 130 ms with a classifier) is in [sentinel-eval/docs/COMPARISON.md](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/docs/COMPARISON.md). Known gaps are listed as expected-failure tests in
 `tests/test_signatures.py`. Quoted attack phrases ("explain the 'ignore previous instructions' attack") are blocked too.
 
@@ -146,7 +146,7 @@ Written down so progress can be checked against something. Numbers are from the 
 
 | Target | Status |
 |---|---|
-| Whole stack catches at least 50% of blind attacks | **Not met by default (10%).** Met with a trained classifier (73-97%, depending on the model). |
+| Whole stack catches at least 50% of blind attacks | **Not met by default (10%).** Met with a pretrained classifier (73-97% across the four classifier rows above; blind set, used up). |
 | False blocks on harmless prompts at most 5% | Default 4%. With a classifier 4-12%, so **not reliably met**. |
 | No path lets a prompt through when a configured layer is down | **Met when `SENTINEL_SEMANTIC_REQUIRED=true`** (compose and Kubernetes set it). A bare `docker run` without it still fails open. |
 | The published image starts, in CI | Met; publishing now waits for the CI jobs, including the image test. |
@@ -172,7 +172,7 @@ Run both services together:
 AI_SENTINEL_API_KEY=change-me SEMANTIC_API_KEY=change-me-too docker compose up --build
 ```
 
-To switch the trained classifier on (opt-in; bigger image, about 2 GB, slower first build):
+To switch the pretrained classifier on (opt-in; bigger image, about 2 GB, slower first build):
 
 ```bash
 AI_SENTINEL_API_KEY=change-me SEMANTIC_API_KEY=change-me-too \

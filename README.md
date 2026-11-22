@@ -78,6 +78,8 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **Contract:** [`openapi.json`](openapi.json). **Latest numbers as JSON:** [`results/latest.json`](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/results/latest.json) (also lists which test sets are spent). **Known failures:** [`data/known_gaps.jsonl`](https://github.com/yurtseveronder-design/sentinel-eval/blob/main/data/known_gaps.jsonl).
 
+**Think you can get past it?** [sentinel-arena](https://github.com/yurtseveronder-design/sentinel-arena) takes attacks by pull request and publishes what the default guard stops and misses ([live results](https://yurtseveronder-design.github.io/sentinel-arena/)). Its seed attacks were written by the project builder, so treat its numbers as a snapshot, not a benchmark.
+
 **Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A pretrained classifier raises that to 73-97% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. Fails open unless `SENTINEL_SEMANTIC_REQUIRED=true`. This is a first line of defence, not a guarantee.
 
 **Recommended settings for agents: fail closed.** Run with `SENTINEL_SEMANTIC_REQUIRED=true` (already on in the one-command stack and `docker-compose.yml`; **not** on in a bare `docker run`), and in code treat "no verdict" as "no". A gateway that quietly falls back to rules alone catches about 1 in 10 unseen attacks. The same facts as JSON: [`capabilities.json`](capabilities.json) (start commands, measured results, limits).

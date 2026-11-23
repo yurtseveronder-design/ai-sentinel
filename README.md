@@ -151,7 +151,7 @@ The rule layer has **no "harmless context" exceptions**. Earlier versions excuse
 - "The bot has no limits for free users in the first month, is that right?"
 - "Override the previous directives in the spreadsheet template with the new column names."
 
-The full list (33 sentences) is `ACCEPTED_FALSE_BLOCKS` in `tests/test_signatures.py`; a test fails when one of them starts being allowed, so the list stays honest. If your traffic contains such sentences, use `SENTINEL_MODE=shadow` first to see how often, or ask for a narrower rule backed by attacks that fail to pass it.
+The full list (33 sentences) is `ACCEPTED_FALSE_BLOCKS` in `tests/test_signatures.py`; a test fails when one of them starts being allowed, so the list stays honest. If your traffic contains such sentences, use `AI_SENTINEL_MODE=shadow` first to see how often, or ask for a narrower rule backed by attacks that fail to pass it.
 
 ## Targets and where we stand
 

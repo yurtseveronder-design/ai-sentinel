@@ -38,7 +38,7 @@
     "latency_ms_per_scan": {"rules_only": 3, "with_classifier": 130, "with_classifier_and_embeddings": 167}
   },
   "limits": [
-    "The default setup (rules + keywords) misses most unseen attacks; a trained classifier is opt-in and raises catch rate at the cost of more false blocks.",
+    "The default setup (rules + keywords) misses most unseen attacks; a pretrained public classifier (ProtectAI or deepset) is opt-in and raises catch rate (73-97% on the blind set, now used up) at the cost of more false blocks (8-12%).",
     "Test sets are small (25-48 prompts per label); one prompt moves a rate by 2-4 points.",
     "Known misses are listed in data/known_gaps.jsonl in sentinel-eval.",
     "Detects text-level injection; it does not sandbox tools, verify identity, or stop a model from misbehaving on its own.",

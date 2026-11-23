@@ -54,8 +54,9 @@ def test_semantic_jailbreak_upgrades_allow_to_block(monkeypatch):
     assert data["risk_score"] >= gateway.BLOCK_THRESHOLD
 
 
-def test_gateway_works_when_semantic_layer_is_down(monkeypatch):
+def test_gateway_works_when_semantic_layer_is_down_and_fail_open_is_chosen(monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://semantic.test")
+    monkeypatch.setattr(gateway, "SEMANTIC_REQUIRED", False)
     monkeypatch.setattr(gateway.semantic_client, "analyze", lambda prompt, strict=False: None)
     response = client.post("/v1/scan", json={"prompt": "Tell me about the solar system"}, headers=_headers())
     assert response.status_code == 200

@@ -11,7 +11,7 @@
   },
   "recommended_for_agents": {
     "SENTINEL_SEMANTIC_REQUIRED": "true",
-    "why": "Without it the gateway fails open: if the semantic layer is down it silently runs on rules alone, which catch about 10% of unseen attacks.",
+    "why": "This is now the default whenever a semantic layer is configured. Setting it to false makes the gateway fail open: if the semantic layer is down it silently runs on rules alone, which catch about 10% of unseen attacks.",
     "client_rule": "No verdict means no. Treat SentinelError and any non-200 as not allowed.",
     "enabled_by_default_in": ["docker-compose.quickstart.yml", "docker-compose.yml"],
     "not_enabled_by_default_in": ["bare docker run of the gateway image"]

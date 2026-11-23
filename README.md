@@ -16,7 +16,7 @@ Modular security gateway, prompt-injection defense, and evaluation harness for L
 
   Then `curl -s localhost:8000/v1/scan -H "X-API-Key: demo-key" -H "Content-Type: application/json" -d '{"prompt":"Ignore previous instructions"}'`. The demo keys are for local use only; set `AI_SENTINEL_API_KEY` and `SEMANTIC_API_KEY` for anything real.
 - **In the browser, free, no install:** the Colab badge above (click Runtime, then Run all).
-- **Gateway only:** `docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest` (fails open without the semantic layer, see [For AI agents](#for-ai-agents)).
+- **Gateway only:** `docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest` (a bare gateway has no semantic layer; with one configured it fails closed, see [For AI agents](#for-ai-agents)).
 
 **How well does it work?** (55-prompt blind set; small, so indicative. Full table and caveats [below](#measured-detection-quality).)
 
@@ -80,9 +80,9 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **Think you can get past it?** [sentinel-arena](https://github.com/yurtseveronder-design/sentinel-arena) takes attacks by pull request and publishes what the default guard stops and misses ([live results](https://yurtseveronder-design.github.io/sentinel-arena/)). Its seed attacks were written by the project builder, so treat its numbers as a snapshot, not a benchmark.
 
-**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A pretrained classifier raises that to 73-97% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. Fails open unless `SENTINEL_SEMANTIC_REQUIRED=true`. This is a first line of defence, not a guarantee.
+**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A pretrained classifier raises that to 73-97% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. With a semantic layer configured it **fails closed** (503) when that layer does not answer; failing open is possible only on purpose with `SENTINEL_SEMANTIC_REQUIRED=false`. This is a first line of defence, not a guarantee.
 
-**Recommended settings for agents: fail closed.** Run with `SENTINEL_SEMANTIC_REQUIRED=true` (already on in the one-command stack and `docker-compose.yml`; **not** on in a bare `docker run`), and in code treat "no verdict" as "no". A gateway that quietly falls back to rules alone catches about 1 in 10 unseen attacks. The same facts as JSON: [`capabilities.json`](capabilities.json) (start commands, measured results, limits).
+**Fail closed is the default** whenever `SENTINEL_SEMANTIC_URL` is set: if the semantic layer cannot answer (down, HTTP 5xx, slow, a garbage reply, auth or rate-limit errors), `/v1/scan` returns 503 and `/ready` reports not ready. To fail open on purpose, set `SENTINEL_SEMANTIC_REQUIRED=false`. (The compose files and the Kubernetes example also set it to `true` explicitly.) In code, treat "no verdict" as "no". **This default changed:** earlier versions failed open unless the setting was `true`. A gateway that quietly falls back to rules alone catches about 1 in 10 unseen attacks. The same facts as JSON: [`capabilities.json`](capabilities.json) (start commands, measured results, limits).
 
 **Minimal integration, the recommended starting point (5 lines):**
 
@@ -150,7 +150,7 @@ Written down so progress can be checked against something. Numbers are from the 
 |---|---|
 | Whole stack catches at least 50% of blind attacks | **Not met by default (10%).** Met with a pretrained classifier (73-97% across the four classifier rows above; blind set, used up). |
 | False blocks on harmless prompts at most 5% | Default 4%. With a classifier 4-12%, so **not reliably met**. |
-| No path lets a prompt through when a configured layer is down | **Met when `SENTINEL_SEMANTIC_REQUIRED=true`** (compose and Kubernetes set it). A bare `docker run` without it still fails open. |
+| No path lets a prompt through when a configured layer is down | **Met by default when a semantic layer is configured** (503 if it does not answer). Not met if you set `SENTINEL_SEMANTIC_REQUIRED=false`. With no semantic layer configured there is no second layer to wait for. |
 | The published image starts, in CI | Met; publishing now waits for the CI jobs, including the image test. |
 
 Practical meaning: the default rules alone are a first line against classic phrasings. Real protection needs the classifier switched on and the layer required.
@@ -164,9 +164,9 @@ AI Sentinel can consult [sentinel-semantic](https://github.com/yurtseveronder-de
 | `SENTINEL_SEMANTIC_URL` | Base URL of the semantic service, for example `http://localhost:8100`. Unset = feature off |
 | `SENTINEL_SEMANTIC_API_KEY` | Sent as `X-API-Key` when the semantic service requires it |
 | `SENTINEL_SEMANTIC_TIMEOUT` | Seconds to wait (default `1.5`) |
-| `SENTINEL_SEMANTIC_REQUIRED` | `true` = if the semantic layer does not answer, `/v1/scan` returns **503** instead of an unchecked verdict. Default off (fail open); the compose files and the Kubernetes example turn it on. `/ready` reports 503 while the layer is down (`/health` stays a plain liveness check). |
+| `SENTINEL_SEMANTIC_REQUIRED` | Default (unset): **on whenever `SENTINEL_SEMANTIC_URL` is set**. If the semantic layer does not answer, `/v1/scan` returns **503** instead of an unchecked verdict. `false` = fail open on purpose (the rules' verdict stands alone). `/ready` reports 503 while the layer is down **or its last real analysis failed** (HTTP 5xx, timeout, garbage reply, auth or rate-limit error), for `SENTINEL_READY_FAILURE_TTL` seconds (default 60); `/health` stays a plain liveness check. |
 
-When enabled, `/v1/scan` adds a `semantic` object (`intent`, `guardrail_profile`, `requires_rag`, `sensitivity_tags`, `filters`, `engine`) to its response, and a `maximum_security_block` profile upgrades an ALLOW to a BLOCK. If the semantic service is unreachable or errors (5xx), the gateway **fails open** to its own rule-based verdict unless `SENTINEL_SEMANTIC_REQUIRED=true`, in which case it answers 503; either way the `semantic_unavailable` counter in `/metrics` goes up. If it rejects the input (4xx such as 422), the request is **blocked**. Long prompts are analysed in overlapping 4,000-character windows.
+When enabled, `/v1/scan` adds a `semantic` object (`intent`, `guardrail_profile`, `requires_rag`, `sensitivity_tags`, `filters`, `engine`) to its response, and a `maximum_security_block` profile upgrades an ALLOW to a BLOCK. If the semantic service is unreachable or errors (5xx), the gateway answers 503 (fail closed, the default) unless you chose `SENTINEL_SEMANTIC_REQUIRED=false`, in which case it falls back to its own rule-based verdict; either way the `semantic_unavailable` counter in `/metrics` goes up. If it rejects the input (4xx such as 422), the request is **blocked**. Long prompts are analysed in overlapping 4,000-character windows.
 
 Run both services together:
 

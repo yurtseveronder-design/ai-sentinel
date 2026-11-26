@@ -42,7 +42,7 @@
             }
           },
           "503": {
-            "description": "Semantic layer is required (SENTINEL_SEMANTIC_REQUIRED=true) but did not answer. No verdict was produced: treat as not allowed.",
+            "description": "Semantic layer is configured and required (the default when configured; fail open only with SENTINEL_SEMANTIC_REQUIRED=false) but did not answer. No verdict was produced: treat as not allowed.",
             "content": {
               "application/json": {
                 "schema": {

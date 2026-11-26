@@ -1,4 +1,4 @@
-# Opt-in: the semantic service with the trained classifier switched on.
+# Opt-in: the semantic service with the pretrained (public) classifier switched on.
 #   docker compose -f docker-compose.yml -f docker-compose.classifier.yml up --build
 # Bigger image (~2 GB, CPU torch) and slower first build; the default compose stays light.
 services:

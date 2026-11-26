@@ -90,12 +90,13 @@ def test_metrics_endpoint_needs_a_key_and_counts_scans(client):
 def test_required_semantic_layer_refuses_instead_of_allowing(client, monkeypatch):
     monkeypatch.setenv("SENTINEL_SEMANTIC_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("SENTINEL_SEMANTIC_TIMEOUT", "0.3")
-    # default: fail open, the rules' verdict stands
-    assert client.post("/v1/scan", json={"prompt": "hello there"}, headers={"X-API-Key": KEY}).status_code == 200
-    # required: no verdict without the configured layer
-    monkeypatch.setattr(gateway, "SEMANTIC_REQUIRED", True)
+    # default (setting not made): a configured layer that does not answer means no verdict
+    monkeypatch.setattr(gateway, "SEMANTIC_REQUIRED", None)
     r = client.post("/v1/scan", json={"prompt": "hello there"}, headers={"X-API-Key": KEY})
     assert r.status_code == 503 and "required" in r.json()["detail"]
+    # fail open only on purpose: SENTINEL_SEMANTIC_REQUIRED=false
+    monkeypatch.setattr(gateway, "SEMANTIC_REQUIRED", False)
+    assert client.post("/v1/scan", json={"prompt": "hello there"}, headers={"X-API-Key": KEY}).status_code == 200
 
 
 def test_ready_reports_a_down_semantic_layer_and_health_is_unchanged(client, monkeypatch):

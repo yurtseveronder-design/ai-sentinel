@@ -45,7 +45,17 @@ app = FastAPI(
 )
 
 # Initialize Security Shield with fail-closed configuration
-SEMANTIC_REQUIRED = os.getenv("SENTINEL_SEMANTIC_REQUIRED", "").strip().lower() in ("1", "true", "yes")
+# Fail closed by default: when a semantic layer is configured (SENTINEL_SEMANTIC_URL), a request it cannot answer
+# gets 503 instead of an unchecked verdict. Fail open only on purpose: SENTINEL_SEMANTIC_REQUIRED=false.
+# None = not set, i.e. "required whenever a semantic layer is configured" (see semantic_required()).
+_REQ = os.getenv("SENTINEL_SEMANTIC_REQUIRED", "").strip().lower()
+SEMANTIC_REQUIRED: Optional[bool] = True if _REQ in ("1", "true", "yes", "on") else False if _REQ in ("0", "false", "no", "off") else None
+
+
+def semantic_required() -> bool:
+  return SEMANTIC_REQUIRED if SEMANTIC_REQUIRED is not None else semantic_client.semantic_enabled()
+
+
 BLOCK_THRESHOLD = float(os.getenv("AI_SENTINEL_BLOCK_THRESHOLD", "0.7"))
 shield = SecurityShield(block_threshold=BLOCK_THRESHOLD)
 
@@ -179,13 +189,13 @@ def health_check() -> dict:
 @app.get("/ready")
 def readiness():
   """Readiness: 200 only if every configured layer is answering. /health stays a plain liveness check."""
-  if semantic_client.semantic_enabled() and not semantic_client.probe():
+  if semantic_client.semantic_enabled() and (not semantic_client.probe() or semantic_client.last_call_failed()):
     return JSONResponse(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content={"status": "degraded", "semantic": "unavailable", "semantic_required": SEMANTIC_REQUIRED},
+        content={"status": "degraded", "semantic": "unavailable", "semantic_required": semantic_required()},
     )
   return {"status": "ready", "semantic": "ok" if semantic_client.semantic_enabled() else "not_configured",
-          "semantic_required": SEMANTIC_REQUIRED}
+          "semantic_required": semantic_required()}
 
 
 @app.get("/metrics")
@@ -236,13 +246,13 @@ def scan_prompt(payload: ScanRequest, request: Request, x_api_key: Optional[str]
   risk_score = verdict.risk_score
   reasons = list(verdict.reasons)
 
-  # Optional semantic enrichment (sentinel-semantic). If the service is unreachable the rule-based verdict
-  # stands on its own (fail open, by design). If it REJECTS the input (HTTP 4xx, e.g. 422) that is not
-  # "unavailable": the text was never judged, so the request is blocked.
+  # Optional semantic enrichment (sentinel-semantic). If it is configured and does not answer, the request gets
+  # 503 (fail closed, the default); the rule-based verdict stands alone only if SENTINEL_SEMANTIC_REQUIRED=false.
+  # If it REJECTS the input (HTTP 4xx, e.g. 422) that is not "unavailable": the text was never judged, so the request is blocked.
   semantic = None
   if semantic_client.semantic_enabled() and text_to_scan:
     try:
-      analysis = semantic_client.analyze(text_to_scan, strict=SEMANTIC_REQUIRED)
+      analysis = semantic_client.analyze(text_to_scan, strict=semantic_required())
       if analysis is None:
         metrics.inc("semantic_unavailable")
     except semantic_client.SemanticUnavailable:

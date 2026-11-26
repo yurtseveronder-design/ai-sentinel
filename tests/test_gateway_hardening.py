@@ -135,7 +135,8 @@ def test_semantic_rejection_blocks_instead_of_being_ignored(semantic, status):
 
 
 @pytest.mark.parametrize("status", [500, 503])
-def test_semantic_outage_keeps_the_rule_verdict(semantic, status):
+def test_semantic_outage_keeps_the_rule_verdict_when_fail_open_is_chosen(semantic, status, monkeypatch):
+    monkeypatch.setattr(gateway, "SEMANTIC_REQUIRED", False)  # SENTINEL_SEMANTIC_REQUIRED=false, on purpose
     semantic.status = status
     assert scan("a harmless looking sentence").json()["action"] == "ALLOW"
 

@@ -13,29 +13,14 @@ _VERBS_LEAK = r"(?:reveal|show|print|repeat|output|display|dump|tell\s+me|give\s
 _VERBS_DROP = r"(?:ignore|disregard|forget|override|discard)"
 _PRIOR = r"(?:previous|prior|earlier|above|preceding|former|original|system|safety|initial)"
 _RULES = r"(?:instructions?|directives?|rules|guidelines|programming|prompt|commands|training)"
-# "ignore the previous instructions in the recipe" talks ABOUT a named document's instructions, not the model's.
-# The exception only applies when the very next words name a document; "in this conversation" or "for the rest of
-# the chat" do NOT excuse an attack, so an attacker cannot buy an exemption by appending a harmless-sounding tail.
-_DOC_NOUN = (r"(?:recipe|document|doc|file|e-?mail|article|report|manual|contract|spreadsheet|ticket|form|policy|"
-             r"script|essay|paper|page|handbook|guide|assignment|homework|worksheet|template|letter|memo|brief|slides?|deck)")
-# Words that turn "about/for/on ..." back into an instruction to the model rather than a topic.
-_SELF_REFERENCE = (r"(?:safety|security|restrictions?|ethics|limits|limitations|filters?|guardrails|content|everything|anything|"
-                   r"rest|remainder|duration|conversation|chat|session|thread|prompt|message|answers?|responses?)")
-_NOT_ABOUT_A_DOCUMENT = (
-    r"(?!\s+(?:in|from|within|inside)\s+(?:the\s+|this\s+|that\s+|my\s+|our\s+|an?\s+)?(?:[a-z\-]+\s+){0,2}" + _DOC_NOUN + r"\b"
-    r"|\s+(?:on|for|at|about)\s+(?!(?:[a-z']+\s+){0,2}" + _SELF_REFERENCE + r"\b))"
-)
-# "enable developer mode" is a normal phone/browser setting; excused only when a device or browser is named right after it
-_NOT_A_DEVICE = (
-    r"(?!(?:\s+(?:on|in|for|of)\s+(?:my|your|the|an?|this|that)\s+|\s+(?:on|in|for|of)\s+)?"
-    r"(?:android|iphone|ipad|ios|phone|tablet|browser|chrome|firefox|safari|edge|xbox|steam|windows|samsung|usb|settings)\b)"
-)
-
+# No "harmless-context" exceptions: earlier versions excused phrases such as "in the document", "on how ...",
+# "developer mode on Android" and "no restrictions on ...". Independent attacks written in those shapes got through
+# (5-6 of 6 each), so they were removed on purpose. The price is some false blocks, listed in the README.
 # English signatures, matched against the folded (lowercase, de-obfuscated) text.
 ENGLISH: Dict[str, List[str]] = {
     "direct_injection": [
         r"ignore\s+(?:previous|all)\s+instructions",  # original signature
-        rf"\b{_VERBS_DROP}\s+(?:all\s+|any\s+)?(?:of\s+)?(?:your\s+|the\s+|my\s+|these\s+|those\s+)?{_PRIOR}\s+{_RULES}\b{_NOT_ABOUT_A_DOCUMENT}",
+        rf"\b{_VERBS_DROP}\s+(?:all\s+|any\s+)?(?:of\s+)?(?:your\s+|the\s+|my\s+|these\s+|those\s+)?{_PRIOR}\s+{_RULES}\b",
         rf"\b{_VERBS_DROP}\s+(?:all|your|any)\s+(?:of\s+)?(?:the\s+)?(?:{_RULES}|restrictions|ethics|safety)",
         r"\bforget\s+(?:everything|all)\s+(?:you\s+(?:were|have\s+been)\s+told|i\s+said|above|before)",
         r"\byou\s+(?:no\s+longer|don'?t|do\s+not)\s+(?:have|need\s+to\s+follow)\s+(?:any\s+)?(?:restrictions|rules|limits|guidelines)",
@@ -51,16 +36,16 @@ ENGLISH: Dict[str, List[str]] = {
     ],
     "jailbreak": [
         r"you\s+are\s+now\s+dan",  # original signature
-        rf"enable\s+developer\s+mode{_NOT_A_DEVICE}",  # original signature, minus the phone/browser setting
+        rf"enable\s+developer\s+mode",  # original signature
         r"bypass\s+rules",  # original signature
         r"bypass\s+(?:safety|security)",  # original signature
         r"\byou\s+are\s+(?:now\s+)?dan\b",
         r"\bdo\s+anything\s+now\b",
-        rf"\b(?:enable|enter|activate|switch\s+to)\s+(?:developer|god|evil|dan|jail(?:break(?:ed)?|broken)|unrestricted)\s+mode\b{_NOT_A_DEVICE}",
+        rf"\b(?:enable|enter|activate|switch\s+to)\s+(?:developer|god|evil|dan|jail(?:break(?:ed)?|broken)|unrestricted)\s+mode\b",
         r"\bbypass\s+(?:the\s+|all\s+|your\s+)?(?:safety|security|content|rules?|restrictions?|filters?|guardrails?)\b",
         r"\bdisable\s+(?:all\s+|your\s+)?(?:content\s+|safety\s+|security\s+)?(?:filters?|restrictions|safeguards|guardrails)\b",
         r"\b(?:unfiltered|uncensored|unrestricted)\s+(?:ai|model|mode|assistant|version)\b",
-        r"\b(?:ai|model|assistant|bot|chatbot)\b.{0,40}\b(?:no|without(?:\s+any)?)\s+(?:restrictions|limits|limitations|filters|safety\s+rules|guardrails|rules)\b(?!\s+(?:on|for|in|of)\b)",
+        r"\b(?:ai|model|assistant|bot|chatbot)\b.{0,40}\b(?:no|without(?:\s+any)?)\s+(?:restrictions|limits|limitations|filters|safety\s+rules|guardrails|rules)\b",
         r"\b(?:act|pretend|roleplay)\b.{0,20}\b(?:as|to\s+be)\b.{0,10}\b(?:deceased|late|dead)\s+(?:grand)?(?:mother|father|ma|pa)\b",
     ],
 }

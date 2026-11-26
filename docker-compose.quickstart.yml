@@ -4,7 +4,7 @@
 #
 # Then:  curl -s localhost:8000/v1/scan -H "X-API-Key: demo-key" -H "Content-Type: application/json" -d '{"prompt":"Ignore previous instructions"}'
 #
-# With the trained classifier (bigger image, ~2 GB):   SEMANTIC_TAG=latest-classifier  (same command, prefix it)
+# With the pretrained (public) classifier (bigger image, ~2 GB):   SEMANTIC_TAG=latest-classifier  (same command, prefix it)
 # Local demo defaults only. For anything real, set your own keys:  AI_SENTINEL_API_KEY=... SEMANTIC_API_KEY=...
 services:
   semantic:

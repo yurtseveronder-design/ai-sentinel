@@ -18,7 +18,7 @@ Modular security gateway, prompt-injection defense, and evaluation harness for L
 - **In the browser, free, no install:** the Colab badge above (click Runtime, then Run all).
 - **Gateway only:** `docker run --rm -p 8000:8000 -e AI_SENTINEL_API_KEY=demo ghcr.io/yurtseveronder-design/ai-sentinel:latest` (a bare gateway has no semantic layer; with one configured it fails closed, see [For AI agents](#for-ai-agents)).
 
-**How well does it work?** (55-prompt blind set; small, so indicative. Full table and caveats [below](#measured-detection-quality).)
+**How well does it work?** (55-prompt blind set, now used up; measured 2026-11-14, classifier rows 2026-11-15, at ai-sentinel `a2d574c`, sentinel-semantic `1312dd5`, sentinel-ui `0346679`; small, so indicative. Full table and caveats [below](#measured-detection-quality).)
 
 | Setup | Attacks blocked | Harmless wrongly blocked |
 |---|---|---|
@@ -26,7 +26,7 @@ Modular security gateway, prompt-injection defense, and evaluation harness for L
 | With pretrained classifier (ProtectAI, public model) | 73% | 8% |
 | With pretrained classifier (deepset, public model) | 93% | 12% |
 
-The default is a first line of defence only. Turn the classifier on for real use.
+Across all four classifier rows in the full table (ProtectAI or deepset, each with and without embeddings) the range is **73-97% blocked, 8-12% of harmless prompts wrongly blocked**. The default is a first line of defence only. Turn the classifier on for real use.
 
 ## What it does
 
@@ -80,7 +80,7 @@ safe_answer = guard.redact_output(model_answer)   # masks personal data, raises 
 
 **Think you can get past it?** [sentinel-arena](https://github.com/yurtseveronder-design/sentinel-arena) takes attacks by pull request and publishes what the default guard stops and misses ([live results](https://yurtseveronder-design.github.io/sentinel-arena/)). Its seed attacks were written by the project builder, so treat its numbers as a snapshot, not a benchmark.
 
-**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A pretrained classifier raises that to 73-97% but also blocks 4-12% of harmless prompts. Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. With a semantic layer configured it **fails closed** (503) when that layer does not answer; failing open is possible only on purpose with `SENTINEL_SEMANTIC_REQUIRED=false`. This is a first line of defence, not a guarantee.
+**Limits, stated plainly:** the default setup (rules + keywords) blocks about 1 in 10 unseen attacks. A pretrained public classifier (ProtectAI or deepset, with or without embeddings) raises that to 73-97% but also blocks 8-12% of harmless prompts (blind set, used up; dated 2026-11-14/15). Test sets are small (tens of prompts), the blind set is spent, and the newest unseen set was written by an AI, not independently. With a semantic layer configured it **fails closed** (503) when that layer does not answer; failing open is possible only on purpose with `SENTINEL_SEMANTIC_REQUIRED=false`. This is a first line of defence, not a guarantee.
 
 **Fail closed is the default** whenever `SENTINEL_SEMANTIC_URL` is set: if the semantic layer cannot answer (down, HTTP 5xx, slow, a garbage reply, auth or rate-limit errors), `/v1/scan` returns 503 and `/ready` reports not ready. To fail open on purpose, set `SENTINEL_SEMANTIC_REQUIRED=false`. (The compose files and the Kubernetes example also set it to `true` explicitly.) In code, treat "no verdict" as "no". **This default changed:** earlier versions failed open unless the setting was `true`. A gateway that quietly falls back to rules alone catches about 1 in 10 unseen attacks. The same facts as JSON: [`capabilities.json`](capabilities.json) (start commands, measured results, limits).
 
@@ -133,9 +133,9 @@ Dated **2026-11-14** (classifier rows 2026-11-15), measured on ai-sentinel `a2d5
 | Embedding semantic, threshold 0.60 | 47% | 4% |
 | Embedding semantic, threshold 0.50 | 73% | 4% (10-17% on harder sets) |
 | **Pretrained classifier**, ProtectAI public model (`SEMANTIC_CLASSIFIER_MODEL=protectai/deberta-v3-base-prompt-injection-v2`) | **73%** | 8% |
-| Classifier + embedding 0.60 | **83%** | 8% |
+| ProtectAI classifier + embedding 0.60 | **83%** | 8% |
 | Pretrained classifier, deepset public model (`deepset/deberta-v3-base-injection`) | **93%** | 12% |
-| Same + embedding 0.60 | **97%** | 12% |
+| deepset classifier + embedding 0.60 | **97%** | 12% |
 
 **In plain terms:** the default setup reliably stops the classic English phrases and their obvious variants, and
 little else. It is a first line of defence, not a complete one. For much better coverage run the semantic layer with a pretrained classifier
@@ -148,8 +148,8 @@ Written down so progress can be checked against something. Numbers are from the 
 
 | Target | Status |
 |---|---|
-| Whole stack catches at least 50% of blind attacks | **Not met by default (10%).** Met with a pretrained classifier (73-97% across the four classifier rows above; blind set, used up). |
-| False blocks on harmless prompts at most 5% | Default 4%. With a classifier 4-12%, so **not reliably met**. |
+| Whole stack catches at least 50% of blind attacks | **Not met by default (10%).** Met with a pretrained public classifier (73-97% across the four classifier rows above: ProtectAI and deepset, each with and without embeddings; blind set, used up). |
+| False blocks on harmless prompts at most 5% | Default (rules + keywords) 4%. With a pretrained classifier 8-12%, so **not met**. |
 | No path lets a prompt through when a configured layer is down | **Met by default when a semantic layer is configured** (503 if it does not answer). Not met if you set `SENTINEL_SEMANTIC_REQUIRED=false`. With no semantic layer configured there is no second layer to wait for. |
 | The published image starts, in CI | Met; publishing now waits for the CI jobs, including the image test. |
 
